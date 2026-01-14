@@ -1,0 +1,31 @@
+      
+      if (updates.sizes) {
+        // Deduplicate sizes by sizeId before saving
+        const sizeMap = new Map();
+        
+        updates.sizes.forEach(s => {
+          if (!sizeMap.has(s.sizeId)) {
+            sizeMap.set(s.sizeId, s);
+          }
+        });
+        
+        updateData.sizes = Array.from(sizeMap.values()).map(s => {
+          const match = s.sizeName.match(/(\d+)×(\d+)/);
+          if (match) {
+            return {
+              width: parseInt(match[1]),
+              height: parseInt(match[2]),
+              price: s.price
+            };
+          }
+          const idMatch = s.sizeId.match(/(\d+)x(\d+)/);
+          if (idMatch) {
+            return {
+              width: parseInt(idMatch[1]),
+              height: parseInt(idMatch[2]),
+              price: s.price
+            };
+          }
+          return { width: 0, height: 0, price: s.price };
+        });
+      }
