@@ -9,6 +9,7 @@ import { CartReturnToast } from './components/CartReturnToast';
 import { ScrollToTop } from './components/ScrollToTop';
 import { WhatsAppButton } from './components/WhatsAppButton';
 import { initFacebookPixel } from './utils/facebookPixel';
+import { imagePreloader } from './services/imagePreloader';
 
 // Eager load critical pages for faster initial load
 import { HomePage } from './pages/HomePage';
@@ -87,6 +88,12 @@ function App() {
   React.useEffect(() => {
     // Initialize Facebook Pixel
     initFacebookPixel('1630749871436923');
+
+    // Preload Unsplash images in background for instant display
+    // This runs asynchronously and doesn't block the UI
+    imagePreloader.preloadUnsplashImages().catch(error => {
+      console.error('Image preload failed (non-critical):', error);
+    });
 
     // Add/update viewport meta tag to prevent zoom
     let viewportMeta = document.querySelector('meta[name="viewport"]');

@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { SlidersHorizontal, X, Search } from 'lucide-react';
 import { unsplashService, UnsplashImage } from '../services/unsplashService';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { imagePreloader } from '../services/imagePreloader';
 
 export const TablouriCanvasPage: React.FC = () => {
   const { categories, subcategories, paintings } = useAdmin();
@@ -56,7 +57,17 @@ export const TablouriCanvasPage: React.FC = () => {
     try {
       setIsLoadingRandom(true);
       
-      // Fetch settings to get curated queries and image count
+      // Try to use preloaded images first
+      const preloadedImages = await imagePreloader.getPreloadedImages();
+      
+      if (preloadedImages && preloadedImages.length > 0) {
+        // Use preloaded images - instant display!
+        setRandomUnsplashImages(preloadedImages);
+        setIsLoadingRandom(false);
+        return;
+      }
+      
+      // Fallback: If preload failed, fetch normally
       const settingsResponse = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/unsplash/settings`,
         {
