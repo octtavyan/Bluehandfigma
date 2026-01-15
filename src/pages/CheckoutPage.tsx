@@ -245,7 +245,8 @@ export const CheckoutPage = () => {
         clientName: `${formData.firstName} ${formData.lastName}`,
         clientEmail: formData.email,
         totalPrice,
-        itemsCount: canvasItems.length
+        itemsCount: canvasItems.length,
+        paymentMethod
       });
 
       // Create order with timeout protection
@@ -277,10 +278,53 @@ export const CheckoutPage = () => {
         setTimeout(() => reject(new Error('Order creation timeout - possible database issue')), 30000)
       );
 
-      await Promise.race([orderPromise, timeoutPromise]);
+      const createdOrder = await Promise.race([orderPromise, timeoutPromise]);
       console.log('✅ Order created successfully');
 
-      // Send order confirmation email to customer (non-blocking)
+      // If payment method is CARD, initiate Netopia payment
+      if (paymentMethod === 'card') {
+        console.log('💳 Initiating Netopia payment...');
+        
+        try {
+          const paymentResponse = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/netopia/start-payment`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${publicAnonKey}`,
+              },
+              body: JSON.stringify({
+                orderId: (createdOrder as any).id || Date.now().toString(),
+                amount: totalPrice,
+                customerEmail: formData.email,
+                customerName: `${formData.firstName} ${formData.lastName}`,
+                returnUrl: window.location.origin,
+              }),
+            }
+          );
+
+          const paymentData = await paymentResponse.json();
+
+          if (paymentData.success && paymentData.paymentUrl) {
+            console.log('✅ Payment URL received, redirecting...');
+            // Clear cart before redirect
+            clearCart();
+            // Redirect to Netopia payment page
+            window.location.href = paymentData.paymentUrl;
+            return; // Don't continue to confirmation step
+          } else {
+            throw new Error('Failed to initialize payment');
+          }
+        } catch (paymentError) {
+          console.error('❌ Payment initialization error:', paymentError);
+          alert('Eroare la inițializarea plății. Te rugăm să ne contactezi la hello@bluehand.ro pentru a finaliza comanda.');
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
+      // For CASH payment, send confirmation email and show confirmation (existing flow)
       try {
         console.log('📧 Sending confirmation email...');
         const orderNumber = Date.now().toString().slice(-8); // Generate simple order number

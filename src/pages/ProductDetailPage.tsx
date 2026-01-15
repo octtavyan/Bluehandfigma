@@ -119,6 +119,19 @@ export const ProductDetailPage: React.FC = () => {
         .filter((size): size is NonNullable<typeof size> => size !== null)
     : [];
 
+  // Calculate available print types based on selected size
+  const selectedSizeFullData = selectedSize ? sizes.find(s => s.id === selectedSize) : null;
+  const availablePrintTypes: ('Print Canvas' | 'Print Hartie')[] = [];
+  
+  if (selectedSizeFullData) {
+    if (selectedSizeFullData.supportsPrintCanvas) {
+      availablePrintTypes.push('Print Canvas');
+    }
+    if (selectedSizeFullData.supportsPrintHartie) {
+      availablePrintTypes.push('Print Hartie');
+    }
+  }
+
   // Auto-select first size on load
   React.useEffect(() => {
     if (availableSizes.length > 0 && !selectedSize) {
@@ -129,16 +142,19 @@ export const ProductDetailPage: React.FC = () => {
     }
   }, [availableSizes]);
 
-  // Auto-select first print type on load
+  // Auto-select first print type based on available print types for selected size
   React.useEffect(() => {
-    if (painting?.printTypes && painting.printTypes.length > 0 && !selectedPrintType) {
+    if (availablePrintTypes.length > 0 && !selectedPrintType) {
       // Prioritize Print Canvas if available, otherwise use first
-      const preferredPrintType = painting.printTypes.includes('Print Canvas') 
+      const preferredPrintType = availablePrintTypes.includes('Print Canvas') 
         ? 'Print Canvas' 
-        : painting.printTypes[0];
+        : availablePrintTypes[0];
       setSelectedPrintType(preferredPrintType);
+    } else if (availablePrintTypes.length > 0 && selectedPrintType && !availablePrintTypes.includes(selectedPrintType)) {
+      // Reset print type if currently selected one is not available for this size
+      setSelectedPrintType(availablePrintTypes[0]);
     }
-  }, [painting]);
+  }, [selectedSize, availablePrintTypes.join(',')]);
 
   // Auto-select first frame type when size is selected
   React.useEffect(() => {
@@ -162,15 +178,18 @@ export const ProductDetailPage: React.FC = () => {
     })
     .filter((ft): ft is NonNullable<typeof ft> => ft !== null)
     .filter(frameType => {
-      // Always show "Fara Rama" regardless of price
-      if (frameType.name === 'Fara Rama') return true;
+      if (!selectedSize) return false;
       
-      // For other frame types, check availability based on selected print type
-      if (selectedSize) {
-        const framePricing = getFramePriceForSize(selectedSize, frameType.id);
-        
-        // Must have a price > 0
-        if (framePricing.price <= 0) return false;
+      const framePricing = getFramePriceForSize(selectedSize, frameType.id);
+      
+      // For "Fara Rama", only show if it has a configured price (even if 0)
+      // Check if the frame pricing actually exists in the size's framePrices
+      const sizeData = sizes.find(s => s.id === selectedSize);
+      const hasFramePricing = sizeData?.framePrices && frameType.id in sizeData.framePrices;
+      
+      if (frameType.name === 'Fara Rama') {
+        // Only show if frame pricing is explicitly configured AND available for selected print type
+        if (!hasFramePricing) return false;
         
         // Check availability based on print type
         const isPrintCanvas = selectedPrintType === 'Print Canvas';
@@ -186,7 +205,22 @@ export const ProductDetailPage: React.FC = () => {
         return true;
       }
       
-      return false;
+      // For other frame types, check availability based on selected print type
+      // Must have a price > 0
+      if (framePricing.price <= 0) return false;
+      
+      // Check availability based on print type
+      const isPrintCanvas = selectedPrintType === 'Print Canvas';
+      const isPrintHartie = selectedPrintType === 'Print Hartie';
+      
+      // Default to true if flags are not set (backwards compatibility)
+      const availableForCanvas = framePricing.availableForCanvas !== false;
+      const availableForPrint = framePricing.availableForPrint !== false;
+      
+      if (isPrintCanvas && !availableForCanvas) return false;
+      if (isPrintHartie && !availableForPrint) return false;
+      
+      return true;
     });
 
   if (!painting) {
@@ -393,14 +427,14 @@ export const ProductDetailPage: React.FC = () => {
             )}
 
             {/* Print Type Selection */}
-            {painting.printTypes && painting.printTypes.length > 0 && (
+            {availablePrintTypes.length > 0 && (
               <div className="mb-6">
                 <label className="block text-gray-900 mb-3">
                   Selectează Tipul de Print
                 </label>
                 <div className="grid grid-cols-2 gap-3">
                   {/* Sort to always show Print Canvas first */}
-                  {[...painting.printTypes].sort((a, b) => {
+                  {[...availablePrintTypes].sort((a, b) => {
                     if (a === 'Print Canvas') return -1;
                     if (b === 'Print Canvas') return 1;
                     return 0;

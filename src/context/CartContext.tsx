@@ -4,6 +4,7 @@ import { toast } from 'sonner@2.0.3';
 import { useNavigate } from 'react-router-dom';
 import { getStorageItem, setStorageItem, removeStorageItem, isIOS } from '../utils/storage';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { trackAddToCartFromProduct } from '../utils/facebookPixel';
 
 interface SizeData {
   id: string;
@@ -222,6 +223,7 @@ export const CartProvider: React.FC<{ children: ReactNode; sizes?: SizeData[]; f
             customization,
           };
           toast.success('Produs adăugat în coș!');
+          trackAddToCartFromProduct(product, quantity, selectedDimension, printType, frameType, customization);
           return [...prevCart, newItem];
         }
 
@@ -245,6 +247,7 @@ export const CartProvider: React.FC<{ children: ReactNode; sizes?: SizeData[]; f
         }
 
         toast.success('Produs adăugat în coș!');
+        trackAddToCartFromProduct(product, quantity, selectedDimension, printType, frameType, customization);
         return [
           ...prevCart,
           {

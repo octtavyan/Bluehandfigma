@@ -14,6 +14,7 @@ export const AdminUsersContent: React.FC = () => {
     role: 'production',
     fullName: '',
     email: '',
+    isActive: true
   });
 
   const handleAddUser = async () => {
@@ -43,6 +44,7 @@ export const AdminUsersContent: React.FC = () => {
       role: 'production',
       fullName: '',
       email: '',
+      isActive: true
     });
     toast.success('Utilizatorul a fost adăugat cu succes!');
   };
@@ -119,6 +121,7 @@ export const AdminUsersContent: React.FC = () => {
         role: 'production',
         fullName: '',
         email: '',
+        isActive: true
       });
       toast.success('Utilizatorul a fost actualizat cu succes!');
     }
@@ -157,6 +160,7 @@ export const AdminUsersContent: React.FC = () => {
       role: 'production',
       fullName: '',
       email: '',
+      isActive: true
     });
   };
 
@@ -265,7 +269,23 @@ export const AdminUsersContent: React.FC = () => {
 
       {/* Add/Edit User Modal */}
       {(showAddModal || editingUser) && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowAddModal(false);
+              setEditingUser(null);
+              setUserForm({
+                username: '',
+                password: '',
+                role: 'production',
+                fullName: '',
+                email: '',
+                isActive: true
+              });
+            }
+          }}
+        >
           <div className="bg-white rounded-lg p-6 max-w-md w-full">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl text-gray-900">{editingUser ? 'Editează Utilizator' : 'Adaugă Utilizator Nou'}</h3>

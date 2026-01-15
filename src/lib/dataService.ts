@@ -1469,6 +1469,8 @@ export const canvasSizesService = {
           price: Number(s.price),
           discount: s.discount || 0,
           isActive: s.is_active,
+          supportsPrintCanvas: s.supports_print_canvas ?? true, // Default to true for backwards compatibility
+          supportsPrintHartie: s.supports_print_hartie ?? true, // Default to true for backwards compatibility
           framePrices: s.frame_prices || {}
         }));
       } catch (error) {
@@ -1489,6 +1491,8 @@ export const canvasSizesService = {
           price: size.price,
           discount: size.discount || 0,
           is_active: size.isActive,
+          supports_print_canvas: size.supportsPrintCanvas !== false,
+          supports_print_hartie: size.supportsPrintHartie !== false,
           frame_prices: size.framePrices || {}
         };
         
@@ -1511,6 +1515,8 @@ export const canvasSizesService = {
           price: Number(data.price),
           discount: data.discount || 0,
           isActive: data.is_active,
+          supportsPrintCanvas: data.supports_print_canvas !== false,
+          supportsPrintHartie: data.supports_print_hartie !== false,
           framePrices: data.frame_prices || {}
         };
       } catch (error) {
@@ -1532,6 +1538,8 @@ export const canvasSizesService = {
         if (updates.price !== undefined) updateData.price = updates.price;
         if (updates.discount !== undefined) updateData.discount = updates.discount;
         if (updates.isActive !== undefined) updateData.is_active = updates.isActive;
+        if (updates.supportsPrintCanvas !== undefined) updateData.supports_print_canvas = updates.supportsPrintCanvas;
+        if (updates.supportsPrintHartie !== undefined) updateData.supports_print_hartie = updates.supportsPrintHartie;
         if (updates.framePrices !== undefined) updateData.frame_prices = updates.framePrices;
 
         console.log('🔵 [dataService.update] Updating size:', id);
@@ -1558,6 +1566,8 @@ export const canvasSizesService = {
           price: Number(data.price),
           discount: data.discount || 0,
           isActive: data.is_active,
+          supportsPrintCanvas: data.supports_print_canvas ?? true,
+          supportsPrintHartie: data.supports_print_hartie ?? true,
           framePrices: data.frame_prices || {}
         };
       } catch (error) {

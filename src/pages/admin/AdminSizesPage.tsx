@@ -15,6 +15,8 @@ export const AdminSizesPage: React.FC = () => {
     price: 0,
     discount: 0,
     isActive: true,
+    supportsPrintCanvas: true,
+    supportsPrintHartie: true,
     framePrices: {},
   });
 
@@ -31,6 +33,8 @@ export const AdminSizesPage: React.FC = () => {
       price: 0,
       discount: 0,
       isActive: true,
+      supportsPrintCanvas: true,
+      supportsPrintHartie: true,
       framePrices: defaultFramePrices,
     });
     setEditingSize(null);
@@ -38,6 +42,13 @@ export const AdminSizesPage: React.FC = () => {
   };
 
   const handleOpenEditModal = (size: CanvasSize) => {
+    console.log('📝 [AdminSizesPage] Opening edit modal with size:', {
+      id: size.id,
+      dimensions: `${size.width}×${size.height}`,
+      supportsPrintCanvas: size.supportsPrintCanvas,
+      supportsPrintHartie: size.supportsPrintHartie,
+    });
+    
     // Initialize frame prices for all frame types
     const framePrices: Record<string, { price: number; discount: number; availableForCanvas: boolean; availableForPrint: boolean }> = {};
     frameTypes.forEach(ft => {
@@ -53,6 +64,8 @@ export const AdminSizesPage: React.FC = () => {
     
     setSizeForm({
       ...size,
+      supportsPrintCanvas: size.supportsPrintCanvas !== false, // Default to true if not set
+      supportsPrintHartie: size.supportsPrintHartie !== false, // Default to true if not set
       framePrices,
     });
     setEditingSize(size);
@@ -65,6 +78,13 @@ export const AdminSizesPage: React.FC = () => {
       return;
     }
 
+    console.log('💾 [AdminSizesPage] Saving size with form data:', {
+      supportsPrintCanvas: sizeForm.supportsPrintCanvas,
+      supportsPrintHartie: sizeForm.supportsPrintHartie,
+      convertedCanvas: sizeForm.supportsPrintCanvas === true,
+      convertedHartie: sizeForm.supportsPrintHartie === true,
+    });
+
     try {
       if (editingSize) {
         // Update existing size
@@ -74,6 +94,8 @@ export const AdminSizesPage: React.FC = () => {
           price: sizeForm.price,
           discount: sizeForm.discount || 0,
           isActive: sizeForm.isActive !== false,
+          supportsPrintCanvas: sizeForm.supportsPrintCanvas === true, // Explicit boolean
+          supportsPrintHartie: sizeForm.supportsPrintHartie === true, // Explicit boolean
           framePrices: sizeForm.framePrices || {},
         });
       } else {
@@ -84,6 +106,8 @@ export const AdminSizesPage: React.FC = () => {
           price: sizeForm.price!,
           discount: sizeForm.discount || 0,
           isActive: sizeForm.isActive !== false,
+          supportsPrintCanvas: sizeForm.supportsPrintCanvas === true, // Explicit boolean
+          supportsPrintHartie: sizeForm.supportsPrintHartie === true, // Explicit boolean
           framePrices: sizeForm.framePrices || {},
         });
       }
@@ -96,6 +120,8 @@ export const AdminSizesPage: React.FC = () => {
         price: 0,
         discount: 0,
         isActive: true,
+        supportsPrintCanvas: true,
+        supportsPrintHartie: true,
         framePrices: {},
       });
     } catch (error) {
@@ -350,7 +376,26 @@ export const AdminSizesPage: React.FC = () => {
 
       {/* Unified Modal - Edit/Add Size + Frame Prices */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+        <div 
+          className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center p-4 z-50"
+          onClick={(e) => {
+            // Close modal when clicking on backdrop
+            if (e.target === e.currentTarget) {
+              setShowModal(false);
+              setEditingSize(null);
+              setSizeForm({
+                width: 0,
+                height: 0,
+                price: 0,
+                discount: 0,
+                isActive: true,
+                supportsPrintCanvas: true,
+                supportsPrintHartie: true,
+                framePrices: {},
+              });
+            }
+          }}
+        >
           <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
             <div className="p-6">
               <h2 className="text-xl text-gray-900 mb-6">
@@ -444,6 +489,43 @@ export const AdminSizesPage: React.FC = () => {
                   <label htmlFor="isActive" className="ml-2 text-sm text-gray-700">
                     Activ
                   </label>
+                </div>
+
+                {/* Print Type Support */}
+                <div>
+                  <label className="block text-sm text-gray-700 mb-2">
+                    Tipuri de Print Suportate
+                  </label>
+                  <div className="space-y-2">
+                    <div className="flex items-center">
+                      <input
+                        type="checkbox"
+                        id="supportsPrintCanvas"
+                        checked={sizeForm.supportsPrintCanvas !== false}
+                        onChange={(e) =>
+                          setSizeForm({ ...sizeForm, supportsPrintCanvas: e.target.checked })
+                        }
+                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                      />
+                      <label htmlFor="supportsPrintCanvas" className="ml-2 text-sm text-gray-700">
+                        Disponibil pentru Print Canvas
+                      </label>
+                    </div>
+                    <div className="flex items-center">
+                      <input
+                        type="checkbox"
+                        id="supportsPrintHartie"
+                        checked={sizeForm.supportsPrintHartie !== false}
+                        onChange={(e) =>
+                          setSizeForm({ ...sizeForm, supportsPrintHartie: e.target.checked })
+                        }
+                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                      />
+                      <label htmlFor="supportsPrintHartie" className="ml-2 text-sm text-gray-700">
+                        Disponibil pentru Print Hartie
+                      </label>
+                    </div>
+                  </div>
                 </div>
 
                 {sizeForm.price && sizeForm.discount ? (

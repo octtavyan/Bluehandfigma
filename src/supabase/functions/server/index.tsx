@@ -3,6 +3,9 @@ import { cors } from "npm:hono@4.3.11/cors";
 import { paintingMetadataHandlers } from './paintingMetadata.ts';
 import { dbOptimizationHandlers } from './dbOptimization.ts';
 import { getOrderConfirmationEmailHtml } from './email-templates.tsx';
+import { netopiaHandlers } from './netopia.ts';
+import { fanCourierHandlers } from './fancourier.ts';
+import * as kv from './kv_store.tsx';
 
 const app = new Hono();
 
@@ -775,7 +778,6 @@ app.post("/make-server-bbc0c500/db/optimize", async (c) => {
 app.get("/make-server-bbc0c500/kv/:key", async (c) => {
   try {
     const key = c.req.param("key");
-    const kv = await import('./kv_store.tsx');
     const value = await kv.get(key);
     
     if (value === null) {
@@ -802,7 +804,6 @@ app.post("/make-server-bbc0c500/kv/:key", async (c) => {
       return c.json({ error: 'Value is required' }, 400);
     }
     
-    const kv = await import('./kv_store.tsx');
     await kv.set(key, value);
     
     return c.json({ success: true, key, value });
@@ -818,7 +819,6 @@ app.post("/make-server-bbc0c500/kv/:key", async (c) => {
 app.delete("/make-server-bbc0c500/kv/:key", async (c) => {
   try {
     const key = c.req.param("key");
-    const kv = await import('./kv_store.tsx');
     await kv.del(key);
     
     return c.json({ success: true, key });
@@ -826,6 +826,213 @@ app.delete("/make-server-bbc0c500/kv/:key", async (c) => {
     console.error('❌ KV delete error:', error);
     return c.json({ 
       error: error instanceof Error ? error.message : "Unknown error" 
+    }, 500);
+  }
+});
+
+// ============ NETOPIA PAYMENTS ROUTES ============
+app.route('/make-server-bbc0c500', netopiaHandlers);
+
+// ============ FAN COURIER DELIVERY ROUTES ============
+app.route('/make-server-bbc0c500', fanCourierHandlers);
+
+// ============ EMAIL SETTINGS ROUTES ============
+// Get email settings
+app.get('/make-server-bbc0c500/email/settings', async (c) => {
+  try {
+    const settings = await kv.get('email_settings');
+    return c.json({ 
+      settings: settings || {
+        apiKey: '',
+        fromEmail: 'hello@bluehand.ro',
+        fromName: 'BlueHand Canvas',
+        isConfigured: false,
+      }
+    });
+  } catch (error) {
+    console.error('Error loading email settings:', error);
+    return c.json({ error: 'Failed to load settings' }, 500);
+  }
+});
+
+// Save email settings
+app.post('/make-server-bbc0c500/email/settings', async (c) => {
+  try {
+    const settings = await c.req.json();
+    await kv.set('email_settings', settings);
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Error saving email settings:', error);
+    return c.json({ error: 'Failed to save settings' }, 500);
+  }
+});
+
+// Test email
+app.post('/make-server-bbc0c500/email/test', async (c) => {
+  try {
+    const body = await c.req.json();
+    const { to } = body;
+    const settings = await kv.get('email_settings') as any;
+    
+    if (!settings || !settings.apiKey) {
+      return c.json({ error: 'Email settings not configured' }, 400);
+    }
+
+    // Use onboarding@resend.dev as the sender for testing if domain not verified
+    // This is Resend's test email that always works
+    const fromEmail = 'onboarding@resend.dev';
+    const fromName = settings.fromName || 'BlueHand Canvas';
+
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${settings.apiKey}`,
+      },
+      body: JSON.stringify({
+        from: `${fromName} <${fromEmail}>`,
+        to: [to],
+        subject: 'Test Email - BlueHand Canvas',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h1 style="color: #2563eb;">Email Test Reușit! ✅</h1>
+            <p>Configurarea emailurilor funcționează corect.</p>
+            <div style="background: #f3f4f6; border-left: 4px solid #3b82f6; padding: 16px; margin: 20px 0;">
+              <p style="margin: 0; font-size: 14px; color: #1f2937;">
+                <strong>Notă:</strong> Acest email de test folosește domeniul Resend (onboarding@resend.dev).
+              </p>
+              <p style="margin: 8px 0 0 0; font-size: 14px; color: #6b7280;">
+                Pentru producție, verifică domeniul tău (<code>${settings.fromEmail}</code>) în 
+                <a href="https://resend.com/domains" style="color: #3b82f6;">Resend Dashboard</a>.
+              </p>
+            </div>
+            <p style="color: #6b7280; font-size: 14px; margin-top: 20px;">
+              Trimis de la ${fromName}<br>
+              Data: ${new Date().toLocaleString('ro-RO')}
+            </p>
+          </div>
+        `,
+      }),
+    });
+
+    const result = await response.json();
+    
+    if (!response.ok) {
+      console.error('Resend API error:', result);
+      
+      // Provide helpful error messages
+      let errorMessage = result.message || 'Failed to send email';
+      
+      if (errorMessage.includes('domain') && errorMessage.includes('not verified')) {
+        errorMessage = `Domeniul ${settings.fromEmail} nu este verificat în Resend. Emailul de test a fost trimis folosind domeniul Resend. Pentru producție, verifică domeniul tău la https://resend.com/domains`;
+      }
+      
+      throw new Error(errorMessage);
+    }
+
+    return c.json({ 
+      success: true, 
+      emailId: result.id,
+      message: `Email trimis cu succes! (folosind ${fromEmail})`,
+    });
+  } catch (error) {
+    console.error('Error sending test email:', error);
+    return c.json({ 
+      error: error instanceof Error ? error.message : 'Failed to send test email' 
+    }, 500);
+  }
+});
+
+// ============ DATABASE MANAGEMENT ROUTES ============
+// Test database connection
+app.get('/make-server-bbc0c500/database/test', async (c) => {
+  try {
+    const { createClient } = await import("jsr:@supabase/supabase-js@2");
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+    );
+
+    // Try a simple query
+    const { error } = await supabase
+      .from('kv_store_bbc0c500')
+      .select('key')
+      .limit(1);
+
+    if (error) {
+      console.error('Database connection test failed:', error);
+      return c.json({ success: false, error: error.message }, 500);
+    }
+
+    return c.json({ success: true, message: 'Database connection successful' });
+  } catch (error) {
+    console.error('Database connection test exception:', error);
+    return c.json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error' 
+    }, 500);
+  }
+});
+
+// Get database statistics
+app.get('/make-server-bbc0c500/database/stats', async (c) => {
+  try {
+    const { createClient } = await import("jsr:@supabase/supabase-js@2");
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+    );
+
+    // Get counts from KV store by key prefix
+    const getCount = async (prefix: string) => {
+      const { data, error } = await supabase
+        .from('kv_store_bbc0c500')
+        .select('key', { count: 'exact', head: true })
+        .like('key', `${prefix}%`);
+      
+      if (error) throw error;
+      return data;
+    };
+
+    // Count records by type (based on key prefixes)
+    const [ordersData, clientsData, paintingsData, usersData, blogData] = await Promise.all([
+      getCount('order-'),
+      getCount('client-'),
+      getCount('painting-'),
+      getCount('user-'),
+      getCount('blogpost-'),
+    ]);
+
+    // For total records, get all KV store records
+    const { count: totalRecords, error: totalError } = await supabase
+      .from('kv_store_bbc0c500')
+      .select('*', { count: 'exact', head: true });
+
+    if (totalError) throw totalError;
+
+    const stats = {
+      orders: ordersData || 0,
+      clients: clientsData || 0,
+      paintings: paintingsData || 0,
+      users: usersData || 0,
+      blogPosts: blogData || 0,
+      totalRecords: totalRecords || 0,
+    };
+
+    return c.json({ success: true, stats });
+  } catch (error) {
+    console.error('Error getting database stats:', error);
+    return c.json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stats: {
+        orders: 0,
+        clients: 0,
+        paintings: 0,
+        users: 0,
+        blogPosts: 0,
+        totalRecords: 0,
+      }
     }, 500);
   }
 });

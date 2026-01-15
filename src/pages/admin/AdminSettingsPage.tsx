@@ -1,413 +1,364 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AdminLayout } from '../../components/admin/AdminLayout';
-import { useAdmin } from '../../context/AdminContext';
-import { Plus, Edit2, Trash2, Save, X } from 'lucide-react';
-import { ResendTestPanel } from '../../components/admin/ResendTestPanel';
-import { NotificationSettings } from '../../components/admin/NotificationSettings';
-import { DatabaseManagement } from '../../components/admin/DatabaseManagement';
-import { FanCourierSettings } from '../../components/admin/FanCourierSettings';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { AdminUsersContent } from '../../components/admin/AdminUsersContent';
-import { SQLSchemaViewer } from '../../components/SQLSchemaViewer';
-import { SupabaseDebugPanel } from '../../components/SupabaseDebugPanel';
-import { Database } from 'lucide-react';
+import { Save, Eye, EyeOff, CreditCard, Shield, Globe, Plus, Pencil, Trash2, Tag, Mail, Package, Users as UsersIcon, Database, AlertCircle, UserPlus, Lock } from 'lucide-react';
+import { toast } from 'sonner@2.0.3';
+import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { useAdmin, AdminUser, UserRole } from '../../context/AdminContext';
+import { useSearchParams } from 'react-router-dom';
+import { UserManagementTab } from '../../components/admin/UserManagementTab';
+import { FanCourierTab } from '../../components/admin/FanCourierTab';
+import { EmailConfigTab } from '../../components/admin/EmailConfigTab';
+import { DatabaseManagementTab } from '../../components/admin/DatabaseManagementTab';
+import { CategoriesStylesTab } from '../../components/admin/CategoriesStylesTab';
+
+interface NetopiaSettings {
+  merchantId: string;
+  apiKey: string;
+  isLive: boolean;
+  posSignature: string;
+  publicKey: string;
+}
+
+type TabType = 'categories' | 'email' | 'fancourier' | 'users' | 'database' | 'netopia';
 
 export const AdminSettingsPage: React.FC = () => {
-  const { currentUser, categories, subcategories, addCategory, updateCategory, deleteCategory, addSubcategory, updateSubcategory, deleteSubcategory } = useAdmin();
-  const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const defaultTab = searchParams.get('tab') || 'categories';
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialTab = (searchParams.get('tab') as TabType) || 'categories';
+  const [activeTab, setActiveTab] = useState<TabType>(initialTab);
+  const { categories, subcategories, addCategory, updateCategory, deleteCategory } = useAdmin();
   
-  // Categories state
-  const [addingCategory, setAddingCategory] = useState(false);
-  const [newCategoryName, setNewCategoryName] = useState('');
+  // Netopia state
+  const [loadingNetopia, setLoadingNetopia] = useState(false);
+  const [savingNetopia, setSavingNetopia] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [netopiaSettings, setNetopiaSettings] = useState<NetopiaSettings>({
+    merchantId: '',
+    apiKey: '',
+    isLive: false,
+    posSignature: '',
+    publicKey: '',
+  });
+
+  // Category editing state
   const [editingCategory, setEditingCategory] = useState<string | null>(null);
-  const [editCategoryValue, setEditCategoryValue] = useState('');
-  
-  // Subcategories state
-  const [addingSubcategory, setAddingSubcategory] = useState(false);
-  const [newSubcategoryName, setNewSubcategoryName] = useState('');
-  const [editingSubcategory, setEditingSubcategory] = useState<string | null>(null);
-  const [editSubcategoryValue, setEditSubcategoryValue] = useState('');
+  const [newCategoryName, setNewCategoryName] = useState('');
 
-  const isFullAdmin = currentUser?.role === 'full-admin';
+  useEffect(() => {
+    if (activeTab === 'netopia') {
+      loadNetopiaSettings();
+    }
+  }, [activeTab]);
 
-  // Category handlers
-  const handleAddCategory = async () => {
-    if (newCategoryName.trim()) {
-      await addCategory(newCategoryName.trim());
-      setNewCategoryName('');
-      setAddingCategory(false);
+  const loadNetopiaSettings = async () => {
+    setLoadingNetopia(true);
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/netopia/settings`,
+        {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${publicAnonKey}`,
+          },
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.settings) {
+          setNetopiaSettings(data.settings);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading Netopia settings:', error);
+    } finally {
+      setLoadingNetopia(false);
     }
   };
 
-  const startEditCategory = (categoryId: string, currentName: string) => {
-    setEditingCategory(categoryId);
-    setEditCategoryValue(currentName);
-  };
+  const handleSaveNetopia = async () => {
+    setSavingNetopia(true);
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/netopia/settings`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${publicAnonKey}`,
+          },
+          body: JSON.stringify(netopiaSettings),
+        }
+      );
 
-  const handleUpdateCategory = async (categoryId: string) => {
-    if (editCategoryValue.trim()) {
-      await updateCategory(categoryId, editCategoryValue.trim());
-      setEditingCategory(null);
-      setEditCategoryValue('');
+      if (response.ok) {
+        toast.success('Setări Netopia salvate cu succes!');
+      } else {
+        throw new Error('Failed to save settings');
+      }
+    } catch (error) {
+      console.error('Error saving Netopia settings:', error);
+      toast.error('Eroare la salvarea setărilor');
+    } finally {
+      setSavingNetopia(false);
     }
   };
 
-  const handleDeleteCategory = async (categoryId: string) => {
-    if (window.confirm('Sigur doriți să ștergeți această categorie?')) {
-      await deleteCategory(categoryId);
+  const testNetopiaConnection = async () => {
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/netopia/test`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${publicAnonKey}`,
+          },
+        }
+      );
+
+      if (response.ok) {
+        toast.success('Conexiune Netopia testată cu succes!');
+      } else {
+        toast.error('Eroare la testarea conexiunii');
+      }
+    } catch (error) {
+      console.error('Error testing connection:', error);
+      toast.error('Eroare la testarea conexiunii');
     }
   };
 
-  // Subcategory handlers
-  const handleAddSubcategory = async () => {
-    if (newSubcategoryName.trim()) {
-      await addSubcategory(newSubcategoryName.trim());
-      setNewSubcategoryName('');
-      setAddingSubcategory(false);
-    }
+  const handleTabChange = (tab: TabType) => {
+    setActiveTab(tab);
+    setSearchParams({ tab });
   };
 
-  const startEditSubcategory = (subcategoryId: string, currentName: string) => {
-    setEditingSubcategory(subcategoryId);
-    setEditSubcategoryValue(currentName);
-  };
-
-  const handleUpdateSubcategory = async (subcategoryId: string) => {
-    if (editSubcategoryValue.trim()) {
-      await updateSubcategory(subcategoryId, editSubcategoryValue.trim());
-      setEditingSubcategory(null);
-      setEditSubcategoryValue('');
-    }
-  };
-
-  const handleDeleteSubcategory = async (subcategoryId: string) => {
-    if (window.confirm('Sigur doriți să ștergeți acest stil?')) {
-      await deleteSubcategory(subcategoryId);
-    }
-  };
+  const tabs = [
+    { id: 'categories' as const, label: 'Categorii & Stiluri', icon: Tag },
+    { id: 'email' as const, label: 'Configurare Email', icon: Mail },
+    { id: 'fancourier' as const, label: 'FAN Courier AWB', icon: Package },
+    { id: 'users' as const, label: 'Utilizatori', icon: UsersIcon },
+    { id: 'database' as const, label: 'Database Management', icon: Database },
+    { id: 'netopia' as const, label: 'Netopia Payments', icon: CreditCard },
+  ];
 
   return (
     <AdminLayout>
-      <div className="space-y-8">
-        {/* Header */}
-        <div>
-          <h1 className="text-2xl text-gray-900">Setări</h1>
-          <p className="text-gray-600 mt-1">Gestionează categoriile, stilurile și integrările</p>
+      <div className="mb-8">
+        <h1 className="text-3xl text-gray-900 mb-2">Setări</h1>
+        <p className="text-gray-600">Gestionează categoriile, stilurile și integrările</p>
+      </div>
+
+      {/* Tabs */}
+      <div className="bg-white border-b-2 border-gray-200 mb-6">
+        <div className="flex space-x-1 overflow-x-auto">
+          {tabs.map((tab) => {
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => handleTabChange(tab.id)}
+                className={`flex items-center space-x-2 px-6 py-4 font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  activeTab === tab.id
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+                }`}
+              >
+                <Icon className="w-5 h-5" />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
         </div>
+      </div>
 
-        <Tabs defaultValue={defaultTab} className="w-full">
-          <TabsList className={`grid w-full ${isFullAdmin ? 'grid-cols-5' : 'grid-cols-3'}`}>
-            <TabsTrigger value="categories">Categorii & Stiluri</TabsTrigger>
-            <TabsTrigger value="email">Configurare Email</TabsTrigger>
-            <TabsTrigger value="fancourier">FAN Courier AWB</TabsTrigger>
-            {isFullAdmin && (
-              <>
-                <TabsTrigger value="users">Utilizatori</TabsTrigger>
-                <TabsTrigger value="database">Database Management</TabsTrigger>
-              </>
-            )}
-          </TabsList>
+      {/* Categories & Styles Tab */}
+      {activeTab === 'categories' && (
+        <CategoriesStylesTab />
+      )}
 
-          <TabsContent value="categories" className="space-y-8 mt-6">
-            {/* Main Categories Section */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-              <div className="p-6 border-b border-gray-200">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-lg text-gray-900">Categorii Principale</h2>
-                    <p className="text-sm text-gray-500 mt-1">{categories.length} categori{categories.length === 1 ? 'e' : 'i'}</p>
-                  </div>
-                  <button
-                    onClick={() => setAddingCategory(true)}
-                    className="inline-flex items-center px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors"
-                  >
-                    <Plus className="w-4 h-4 mr-2" />
-                    Adaugă Categorie
-                  </button>
-                </div>
-              </div>
+      {/* Email Configuration Tab */}
+      {activeTab === 'email' && (
+        <EmailConfigTab />
+      )}
 
-              <div className="divide-y divide-gray-100">
-                {/* Add New Category */}
-                {addingCategory && (
-                  <div className="p-4 bg-yellow-50">
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="text"
-                        value={newCategoryName}
-                        onChange={(e) => setNewCategoryName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleAddCategory();
-                          if (e.key === 'Escape') {
-                            setAddingCategory(false);
-                            setNewCategoryName('');
-                          }
-                        }}
-                        placeholder="Nume categorie nouă..."
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                        autoFocus
-                      />
-                      <button
-                        onClick={handleAddCategory}
-                        className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                      >
-                        <Save className="w-5 h-5" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          setAddingCategory(false);
-                          setNewCategoryName('');
-                        }}
-                        className="p-2 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
-                      >
-                        <X className="w-5 h-5" />
-                      </button>
-                    </div>
-                  </div>
-                )}
+      {/* FAN Courier Tab */}
+      {activeTab === 'fancourier' && (
+        <FanCourierTab />
+      )}
 
-                {/* Categories List */}
-                {categories.map((category) => {
-                  const isEditing = editingCategory === category.id;
+      {/* Users Tab */}
+      {activeTab === 'users' && (
+        <UserManagementTab />
+      )}
 
-                  return (
-                    <div key={category.id} className="p-4 hover:bg-gray-50 transition-colors">
-                      <div className="flex items-center justify-between">
-                        {isEditing ? (
-                          <div className="flex items-center space-x-2 flex-1">
-                            <input
-                              type="text"
-                              value={editCategoryValue}
-                              onChange={(e) => setEditCategoryValue(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleUpdateCategory(category.id);
-                                if (e.key === 'Escape') {
-                                  setEditingCategory(null);
-                                  setEditCategoryValue('');
-                                }
-                              }}
-                              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                              autoFocus
-                            />
-                            <button
-                              onClick={() => handleUpdateCategory(category.id)}
-                              className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                            >
-                              <Save className="w-5 h-5" />
-                            </button>
-                            <button
-                              onClick={() => {
-                                setEditingCategory(null);
-                                setEditCategoryValue('');
-                              }}
-                              className="p-2 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
-                            >
-                              <X className="w-5 h-5" />
-                            </button>
-                          </div>
-                        ) : (
-                          <>
-                            <h3 className="text-gray-900">{category.name}</h3>
-                            <div className="flex items-center space-x-2">
-                              <button
-                                onClick={() => startEditCategory(category.id, category.name)}
-                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                              >
-                                <Edit2 className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteCategory(category.id)}
-                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+      {/* Database Management Tab */}
+      {activeTab === 'database' && (
+        <DatabaseManagementTab />
+      )}
 
-                {categories.length === 0 && !addingCategory && (
-                  <div className="p-8 text-center text-gray-500">
-                    Nu există categorii. Adaugă prima categorie!
-                  </div>
-                )}
-              </div>
+      {/* Netopia Payments Tab */}
+      {activeTab === 'netopia' && (
+        <div className="bg-white rounded-lg border-2 border-gray-200 p-6">
+          {loadingNetopia ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-gray-500">Se încarcă setările...</div>
             </div>
-
-            {/* Subcategories Section */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-              <div className="p-6 border-b border-gray-200">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-lg text-gray-900">Stil</h2>
-                    <p className="text-sm text-gray-500 mt-1">{subcategories.length} stiluri</p>
-                  </div>
-                  <button
-                    onClick={() => setAddingSubcategory(true)}
-                    className="inline-flex items-center px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors"
-                  >
-                    <Plus className="w-4 h-4 mr-2" />
-                    Adaugă Stil
-                  </button>
-                </div>
-              </div>
-
-              <div className="divide-y divide-gray-100">
-                {/* Add New Subcategory */}
-                {addingSubcategory && (
-                  <div className="p-4 bg-yellow-50">
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="text"
-                        value={newSubcategoryName}
-                        onChange={(e) => setNewSubcategoryName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleAddSubcategory();
-                          if (e.key === 'Escape') {
-                            setAddingSubcategory(false);
-                            setNewSubcategoryName('');
-                          }
-                        }}
-                        placeholder="Nume stil nou..."
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                        autoFocus
-                      />
-                      <button
-                        onClick={handleAddSubcategory}
-                        className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                      >
-                        <Save className="w-5 h-5" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          setAddingSubcategory(false);
-                          setNewSubcategoryName('');
-                        }}
-                        className="p-2 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
-                      >
-                        <X className="w-5 h-5" />
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Subcategories List */}
-                {subcategories.map((subcategory) => {
-                  const isEditing = editingSubcategory === subcategory.id;
-
-                  return (
-                    <div key={subcategory.id} className="p-4 hover:bg-gray-50 transition-colors">
-                      <div className="flex items-center justify-between">
-                        {isEditing ? (
-                          <div className="flex items-center space-x-2 flex-1">
-                            <input
-                              type="text"
-                              value={editSubcategoryValue}
-                              onChange={(e) => setEditSubcategoryValue(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleUpdateSubcategory(subcategory.id);
-                                if (e.key === 'Escape') {
-                                  setEditingSubcategory(null);
-                                  setEditSubcategoryValue('');
-                                }
-                              }}
-                              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                              autoFocus
-                            />
-                            <button
-                              onClick={() => handleUpdateSubcategory(subcategory.id)}
-                              className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                            >
-                              <Save className="w-5 h-5" />
-                            </button>
-                            <button
-                              onClick={() => {
-                                setEditingSubcategory(null);
-                                setEditSubcategoryValue('');
-                              }}
-                              className="p-2 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
-                            >
-                              <X className="w-5 h-5" />
-                            </button>
-                          </div>
-                        ) : (
-                          <>
-                            <h3 className="text-gray-900">{subcategory.name}</h3>
-                            <div className="flex items-center space-x-2">
-                              <button
-                                onClick={() => startEditSubcategory(subcategory.id, subcategory.name)}
-                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                              >
-                                <Edit2 className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteSubcategory(subcategory.id)}
-                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {subcategories.length === 0 && !addingSubcategory && (
-                  <div className="p-8 text-center text-gray-500">
-                    Nu există stiluri. Adaugă primul stil!
-                  </div>
-                )}
-              </div>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="email" className="space-y-8 mt-6">
-            <ResendTestPanel />
-            <NotificationSettings />
-          </TabsContent>
-
-          <TabsContent value="fancourier" className="space-y-8 mt-6">
-            <FanCourierSettings />
-          </TabsContent>
-
-          {isFullAdmin && (
+          ) : (
             <>
-              <TabsContent value="users" className="space-y-8 mt-6">
-                <AdminUsersContent />
-              </TabsContent>
+              <div className="flex items-center space-x-3 mb-6">
+                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                  <CreditCard className="w-6 h-6 text-blue-600" />
+                </div>
+                <div>
+                  <h2 className="text-xl text-gray-900">Netopia Payments</h2>
+                  <p className="text-sm text-gray-600">Configurează gateway-ul de plată Netopia (fost Mobilpay)</p>
+                </div>
+              </div>
 
-              <TabsContent value="database" className="space-y-8 mt-6">
-                <div className="mb-6">
-                  <h2 className="text-xl text-gray-900 mb-2 flex items-center gap-3">
-                    <Database className="w-6 h-6 text-blue-600" />
-                    Database Management
-                  </h2>
-                  <p className="text-gray-600">
-                    Gestionează baza de date Supabase, monitorizează utilizarea și optimizează performanța.
+              <div className="space-y-6">
+                {/* Environment Toggle */}
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <Globe className="w-5 h-5 text-gray-600" />
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">Mod de operare</p>
+                        <p className="text-xs text-gray-500">
+                          {netopiaSettings.isLive ? 'Producție (Live) - Plăți reale' : 'Test (Sandbox) - Plăți de test'}
+                        </p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={netopiaSettings.isLive}
+                        onChange={(e) => setNetopiaSettings({ ...netopiaSettings, isLive: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-14 h-7 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-green-500"></div>
+                      <span className="ml-3 text-sm font-medium text-gray-900">
+                        {netopiaSettings.isLive ? 'LIVE' : 'TEST'}
+                      </span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Merchant ID */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Merchant ID (Account ID)
+                  </label>
+                  <input
+                    type="text"
+                    value={netopiaSettings.merchantId}
+                    onChange={(e) => setNetopiaSettings({ ...netopiaSettings, merchantId: e.target.value })}
+                    placeholder="ex: XXXX-XXXX-XXXX-XXXX-XXXX"
+                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    ID-ul contului tău de la Netopia Payments
                   </p>
                 </div>
 
-                {/* Consolidated Database Management */}
-                <DatabaseManagement />
-
-                {/* Connection Status & SQL Schema */}
-                <div className="mt-8 space-y-6">
-                  <SupabaseDebugPanel />
-                  <SQLSchemaViewer />
+                {/* API Key */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    API Key (Secret Key)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showApiKey ? 'text' : 'password'}
+                      value={netopiaSettings.apiKey}
+                      onChange={(e) => setNetopiaSettings({ ...netopiaSettings, apiKey: e.target.value })}
+                      placeholder="Introdu cheia API secretă"
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none pr-12"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                    >
+                      {showApiKey ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Cheia secretă API primită de la Netopia
+                  </p>
                 </div>
-              </TabsContent>
+
+                {/* POS Signature */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    POS Signature
+                  </label>
+                  <input
+                    type="text"
+                    value={netopiaSettings.posSignature}
+                    onChange={(e) => setNetopiaSettings({ ...netopiaSettings, posSignature: e.target.value })}
+                    placeholder="ex: XXXX-XXXX-XXXX-XXXX-XXXX"
+                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Semnătura POS pentru autentificare
+                  </p>
+                </div>
+
+                {/* Public Key */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Public Key (Certificate)
+                  </label>
+                  <textarea
+                    value={netopiaSettings.publicKey}
+                    onChange={(e) => setNetopiaSettings({ ...netopiaSettings, publicKey: e.target.value })}
+                    placeholder="-----BEGIN PUBLIC KEY-----&#10;...&#10;-----END PUBLIC KEY-----"
+                    rows={6}
+                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none font-mono text-sm"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Certificatul public furnizat de Netopia pentru verificarea semnăturilor
+                  </p>
+                </div>
+
+                {/* Info Box */}
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="flex items-start space-x-3">
+                    <Shield className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div className="text-sm text-blue-900">
+                      <p className="font-medium mb-1">Cum obțin aceste credențiale?</p>
+                      <ol className="list-decimal list-inside space-y-1 text-blue-800">
+                        <li>Creează un cont pe <a href="https://netopia-payments.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-600">netopia-payments.com</a></li>
+                        <li>Completează procesul de verificare pentru contul tău de merchant</li>
+                        <li>Accesează secțiunea "API & Integrare" din dashboard</li>
+                        <li>Copiază credențialele de test pentru dezvoltare</li>
+                        <li>După testare, treci la credențialele de producție (LIVE)</li>
+                      </ol>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex items-center space-x-3 pt-4 border-t border-gray-200">
+                  <button
+                    onClick={handleSaveNetopia}
+                    disabled={savingNetopia}
+                    className="flex-1 flex items-center justify-center space-x-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Save className="w-5 h-5" />
+                    <span>{savingNetopia ? 'Se salvează...' : 'Salvează Setări'}</span>
+                  </button>
+                  <button
+                    onClick={testNetopiaConnection}
+                    disabled={!netopiaSettings.merchantId || !netopiaSettings.apiKey}
+                    className="px-6 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Testează Conexiunea
+                  </button>
+                </div>
+              </div>
             </>
           )}
-        </Tabs>
-      </div>
+        </div>
+      )}
     </AdminLayout>
   );
 };

@@ -663,7 +663,14 @@ export const AdminOrdersPage: React.FC = () => {
 
       {/* Mobile Filter Modal */}
       {showFilterModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-end md:items-center justify-center z-50">
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-end md:items-center justify-center z-50"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowFilterModal(false);
+            }
+          }}
+        >
           <div className="bg-white rounded-t-2xl md:rounded-2xl w-full md:max-w-md md:mx-4 max-h-[80vh] overflow-auto">
             <div className="sticky top-0 bg-white px-6 py-4 border-b border-gray-200">
               <h3 className="text-lg text-gray-900">Filtrare Status</h3>
@@ -818,7 +825,14 @@ export const AdminOrdersPage: React.FC = () => {
 
       {/* Delete Orders Confirmation Modal */}
       {showDeleteModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowDeleteModal(false);
+            }
+          }}
+        >
           <div className="bg-white rounded-lg p-6 max-w-md w-full">
             <h3 className="text-xl text-gray-900 mb-4">Șterge Comenzi</h3>
             

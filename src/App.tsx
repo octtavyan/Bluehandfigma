@@ -8,6 +8,7 @@ import { Toaster } from './components/ui/sonner';
 import { CartReturnToast } from './components/CartReturnToast';
 import { ScrollToTop } from './components/ScrollToTop';
 import { WhatsAppButton } from './components/WhatsAppButton';
+import { initFacebookPixel } from './utils/facebookPixel';
 
 // Eager load critical pages for faster initial load
 import { HomePage } from './pages/HomePage';
@@ -29,6 +30,7 @@ const SitemapPage = lazy(() => import('./pages/SitemapPage').then(m => ({ defaul
 const TermsPage = lazy(() => import('./pages/TermsPage').then(m => ({ default: m.TermsPage })));
 const GDPRPage = lazy(() => import('./pages/GDPRPage').then(m => ({ default: m.GDPRPage })));
 const DebugSupabasePage = lazy(() => import('./pages/DebugSupabasePage').then(m => ({ default: m.DebugSupabasePage })));
+const PaymentSuccessPage = lazy(() => import('./pages/PaymentSuccessPage').then(m => ({ default: m.PaymentSuccessPage })));
 
 // Lazy load admin pages
 const AdminDashboardPage = lazy(() => import('./pages/admin/AdminDashboardPage').then(m => ({ default: m.AdminDashboardPage })));
@@ -83,6 +85,9 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 function App() {
   // Disable zoom on mobile by adding viewport meta tag
   React.useEffect(() => {
+    // Initialize Facebook Pixel
+    initFacebookPixel('1630749871436923');
+
     // Add/update viewport meta tag to prevent zoom
     let viewportMeta = document.querySelector('meta[name="viewport"]');
     if (!viewportMeta) {
@@ -161,6 +166,7 @@ function App() {
                     <Route path="/terms" element={<Suspense fallback={<PageLoader />}><TermsPage /></Suspense>} />
                     <Route path="/gdpr" element={<Suspense fallback={<PageLoader />}><GDPRPage /></Suspense>} />
                     <Route path="/politica-confidentialitate" element={<Suspense fallback={<PageLoader />}><GDPRPage /></Suspense>} />
+                    <Route path="/payment-success" element={<Suspense fallback={<PageLoader />}><PaymentSuccessPage /></Suspense>} />
                   </Routes>
                 </main>
                 <Footer />

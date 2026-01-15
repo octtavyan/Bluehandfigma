@@ -15,6 +15,8 @@ export interface CanvasSize {
   price: number;
   discount: number;
   isActive: boolean;
+  supportsPrintCanvas: boolean; // NEW: Size supports Print Canvas
+  supportsPrintHartie: boolean; // NEW: Size supports Print Hartie
   framePrices?: Record<string, { 
     price: number; 
     discount: number;
@@ -155,11 +157,13 @@ export interface Client {
 export interface CategoryData {
   id: string;
   name: string;
+  slug?: string;
 }
 
 export interface SubcategoryData {
   id: string;
   name: string;
+  slug?: string;
 }
 
 export interface CanvasPainting {
@@ -483,9 +487,11 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         price: s.price,
         discount: s.discount || 0,
         isActive: s.isActive !== undefined ? s.isActive : true,
+        supportsPrintCanvas: s.supportsPrintCanvas ?? true,
+        supportsPrintHartie: s.supportsPrintHartie ?? true,
         framePrices: s.framePrices || {}
       })) : [];
-      console.log('📏 Loaded sizes with discounts:', convertedSizes.map(s => ({ id: s.id, width: s.width, height: s.height, discount: s.discount, framePrices: s.framePrices })));
+      console.log('📏 Loaded sizes with discounts:', convertedSizes.map(s => ({ id: s.id, width: s.width, height: s.height, discount: s.discount, supportsPrintCanvas: s.supportsPrintCanvas, supportsPrintHartie: s.supportsPrintHartie, framePrices: s.framePrices })));
       
       // DEBUG: Check for duplicate sizes (same width/height but different IDs)
       const sizeMap = new Map();
@@ -2004,12 +2010,36 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return size.framePrices[frameTypeId];
   };
 
+  // Helper function to generate URL-friendly slugs
+  const generateSlug = (text: string): string => {
+    return text
+      .toLowerCase()
+      .trim()
+      // Replace Romanian characters
+      .replace(/ă/g, 'a')
+      .replace(/â/g, 'a')
+      .replace(/î/g, 'i')
+      .replace(/ș/g, 's')
+      .replace(/ț/g, 't')
+      // Remove special characters except spaces and hyphens
+      .replace(/[^\w\s-]/g, '')
+      // Replace spaces with hyphens
+      .replace(/\s+/g, '-')
+      // Replace multiple hyphens with single hyphen
+      .replace(/-+/g, '-')
+      // Remove leading/trailing hyphens
+      .replace(/^-+|-+$/g, '');
+  };
+
   // Category management (now using Supabase)
   const addCategory = async (category: string) => {
     try {
+      const slug = generateSlug(category);
+      
       const newCategory: CategoryData = {
         id: `category-${Date.now()}`,
         name: category,
+        slug: slug,
       };
       
       // Save to Supabase
@@ -2028,8 +2058,10 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const updateCategory = async (categoryId: string, newName: string) => {
     try {
+      const slug = generateSlug(newName);
+      
       // Update in Supabase
-      const updated = await categoriesService.update(categoryId, { name: newName });
+      const updated = await categoriesService.update(categoryId, { name: newName, slug: slug });
       setCategories(prev => prev.map(category => 
         category.id === categoryId ? updated : category
       ));
@@ -2063,9 +2095,12 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // Subcategory management (now using Supabase)
   const addSubcategory = async (subcategory: string) => {
     try {
+      const slug = generateSlug(subcategory);
+      
       const newSubcategory: SubcategoryData = {
         id: `subcategory-${Date.now()}`,
         name: subcategory,
+        slug: slug,
       };
       
       // Save to Supabase
@@ -2084,8 +2119,10 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const updateSubcategory = async (subcategoryId: string, newName: string) => {
     try {
+      const slug = generateSlug(newName);
+      
       // Update in Supabase
-      const updated = await subcategoriesService.update(subcategoryId, { name: newName });
+      const updated = await subcategoriesService.update(subcategoryId, { name: newName, slug: slug });
       setSubcategories(prev => prev.map(subcategory => 
         subcategory.id === subcategoryId ? updated : subcategory
       ));
