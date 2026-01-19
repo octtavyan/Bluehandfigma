@@ -378,7 +378,7 @@ export const AdminSizesPage: React.FC = () => {
       {showModal && (
         <div 
           className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center p-4 z-50"
-          onClick={(e) => {
+          onMouseDown={(e) => {
             // Close modal when clicking on backdrop
             if (e.target === e.currentTarget) {
               setShowModal(false);
@@ -396,7 +396,17 @@ export const AdminSizesPage: React.FC = () => {
             }
           }}
         >
-          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
+          <div 
+            className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl"
+            onMouseDown={(e) => {
+              // Stop all mouse events from propagating to backdrop
+              e.stopPropagation();
+            }}
+            onClick={(e) => {
+              // Stop all click events from propagating to backdrop
+              e.stopPropagation();
+            }}
+          >
             <div className="p-6">
               <h2 className="text-xl text-gray-900 mb-6">
                 {editingSize ? 'Editează Dimensiune' : 'Adaugă Dimensiune'}
