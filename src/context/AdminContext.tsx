@@ -1,6 +1,18 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { paintingsService, ordersService, clientsService, blogPostsService, heroSlidesService, adminUsersService, canvasSizesService, frameTypesService, categoriesService, subcategoriesService } from '../lib/dataService';
-import { isSupabaseConfigured, getSupabase } from '../lib/supabase';
+import { 
+  paintingsService, 
+  ordersService, 
+  canvasSizesService, 
+  frameTypesService, 
+  categoriesService, 
+  authService,
+  clientsService,
+  blogPostsService,
+  heroSlidesService,
+  adminUsersService,
+  subcategoriesService
+} from '../lib/supabaseDataService'; // ✅ SWITCHED TO SUPABASE FOR DEVELOPMENT
+import { supabase } from '../lib/supabase'; // Use centralized Supabase client
 import { toast } from 'sonner';
 import { notificationService } from '../services/notificationService';
 import { CacheService, CACHE_KEYS, CACHE_TTL } from '../lib/cacheService';
@@ -306,35 +318,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [paintings, setPaintings] = useState<CanvasPainting[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
-  const [users, setUsers] = useState<AdminUser[]>([
-    {
-      id: 'admin-1',
-      username: 'admin',
-      password: 'admin123',
-      role: 'full-admin',
-      fullName: 'Administrator',
-      email: 'admin@bluehand.ro',
-      isActive: true
-    },
-    {
-      id: 'account-1',
-      username: 'account',
-      password: 'account123',
-      role: 'account-manager',
-      fullName: 'Maria Ionescu',
-      email: 'account@bluehand.ro',
-      isActive: true
-    },
-    {
-      id: 'production-1',
-      username: 'production',
-      password: 'production123',
-      role: 'production',
-      fullName: 'Ion Popescu',
-      email: 'production@bluehand.ro',
-      isActive: true
-    },
-  ]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
 
   const [sizes, setSizes] = useState<CanvasSize[]>([
     { id: 'size-1', width: 10, height: 14, price: 69.00, discount: 0, isActive: true },
@@ -452,11 +436,9 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setIsLoading(true);
     
     // Initialize storage bucket (async, non-blocking)
-    if (isSupabaseConfigured()) {
-      import('../lib/storageInit').then(({ initializeStorageBucket }) => {
-        initializeStorageBucket().catch(() => {});
-      });
-    }
+    import('../lib/storageInit').then(({ initializeStorageBucket }) => {
+      initializeStorageBucket().catch(() => {});
+    }).catch(() => {});
     
     try {
       // Try cache first for each resource
@@ -474,10 +456,12 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       let sizesData;
       if (cachedSizes) {
         sizesData = cachedSizes;
-        console.log('✅ Using cached sizes');
+        console.log('✅ Using cached sizes:', sizesData.length);
       } else {
         console.log('📡 Fetching sizes from Supabase...');
         sizesData = await canvasSizesService.getAll();
+        console.log('📡 Sizes fetched - count:', sizesData?.length || 0);
+        console.log('📡 Sizes data sample:', sizesData?.[0]);
         CacheService.set(CACHE_KEYS.SIZES, sizesData, CACHE_TTL.SIZES);
       }
       const convertedSizes = sizesData.length > 0 ? sizesData.map(s => ({
@@ -714,35 +698,82 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       let heroSlidesData;
       if (cachedHeroSlides) {
         heroSlidesData = cachedHeroSlides;
-        console.log('✅ Using cached hero slides');
+        console.log('✅ Using cached hero slides:', heroSlidesData.length);
       } else {
         console.log('📡 Fetching hero slides from Supabase...');
         heroSlidesData = await heroSlidesService.getAll();
+        console.log('📡 Hero slides fetched - count:', heroSlidesData?.length || 0);
+        console.log('📡 Hero slides data:', heroSlidesData);
         CacheService.set(CACHE_KEYS.HERO_SLIDES, heroSlidesData, CACHE_TTL.HERO_SLIDES);
       }
+      console.log('🎯 Setting hero slides in state:', heroSlidesData);
       setHeroSlides(heroSlidesData);
+      console.log('✅ Hero slides set in state');
 
       // Load admin users (from cache or Supabase)
+      console.log('📡 Loading admin users...');
       let usersData;
       if (cachedUsers) {
         usersData = cachedUsers;
-        console.log('✅ Using cached users');
+        console.log('✅ Using cached users:', usersData.length);
       } else {
         console.log('📡 Fetching users from Supabase...');
         usersData = await adminUsersService.getAll();
+        console.log('📡 Fetched users from Supabase:', usersData.length);
+        
+        // If no users exist, seed default users
+        if (usersData.length === 0) {
+          console.log('🌱 No users found in database. Seeding default users...');
+          const defaultUsers = [
+            {
+              username: 'admin',
+              password: 'admin123',
+              role: 'full-admin' as UserRole,
+              fullName: 'Octavian Dumitrescu',
+              email: 'octavian.dumitrescu@gmail.com',
+              isActive: true
+            },
+            {
+              username: 'account',
+              password: 'account123',
+              role: 'account-manager' as UserRole,
+              fullName: 'Sophie Noelle',
+              email: 'sophienoelle01@gmail.com',
+              isActive: true
+            },
+            {
+              username: 'production',
+              password: 'production123',
+              role: 'production' as UserRole,
+              fullName: 'Florin',
+              email: 'hello@bluehand.ro',
+              isActive: true
+            }
+          ];
+          
+          for (const userData of defaultUsers) {
+            const newUser = await adminUsersService.create(userData);
+            if (newUser) {
+              usersData.push(newUser);
+              console.log(`✅ Created default user: ${userData.username} (${userData.fullName})`);
+            }
+          }
+        }
+        
         CacheService.set(CACHE_KEYS.USERS, usersData, CACHE_TTL.USERS);
       }
-      if (usersData.length > 0) {
-        setUsers(usersData.map(u => ({
-          id: u.id,
-          username: u.username,
-          password: u.password,
-          fullName: u.fullName,
-          email: u.email,
-          role: u.role as UserRole,
-          isActive: u.isActive
-        })));
-      }
+      
+      // Always set users from database (even if empty array)
+      setUsers(usersData.map(u => ({
+        id: u.id,
+        username: u.username,
+        password: u.password,
+        fullName: u.fullName,
+        email: u.email,
+        role: u.role as UserRole,
+        isActive: u.isActive
+      })));
+      console.log('✅ Users loaded:', usersData.length);
 
       // Sizes already loaded earlier (before paintings) - skip duplicate loading
 
@@ -780,9 +811,17 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         })));
       }
 
-      console.log('✅ Data loaded from', isSupabaseConfigured() ? 'Supabase + Cache' : 'localStorage');
+      console.log('✅ Data loaded from Supabase + Cache');
+      console.log('📊 Final State Summary:');
+      console.log('   - Hero Slides:', heroSlidesData?.length || 0);
+      console.log('   - Sizes:', convertedSizes?.length || 0);
+      console.log('   - Blog Posts:', blogPostsData?.length || 0);
+      console.log('   - Orders:', ordersData?.length || 0);
+      console.log('   - Clients:', convertedClients?.length || 0);
+      console.log('   - Users:', usersData?.length || 0);
     } catch (error) {
-      console.error('Error loading data:', error);
+      console.error('❌ Error loading data:', error);
+      console.error('❌ Error stack:', error instanceof Error ? error.stack : 'No stack trace');
     } finally {
       setIsLoading(false);
     }
@@ -807,12 +846,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return;
       }
 
-      // Check if Supabase is configured
-      if (!isSupabaseConfigured()) {
-        console.log('⚠️ Supabase not configured, skipping cleanup');
-        return;
-      }
-
       // Check if orders are loaded
       console.log('📊 Orders loaded:', orders.length);
       if (orders.length === 0) {
@@ -822,9 +855,9 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       try {
         console.log('🧹 Starting automatic cleanup of "Status updated" notes...');
-        const supabase = getSupabase();
+        const supabaseClient = supabase;
         
-        const { data: ordersData, error: fetchError } = await supabase
+        const { data: ordersData, error: fetchError } = await supabaseClient
           .from('orders')
           .select('id, notes')
           .not('notes', 'is', null);
@@ -914,7 +947,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         toast.info(`Curățare automată: Se șterg ${totalRemoved} notițe sistem...`);
 
         for (const update of updates) {
-          const { error: updateError } = await supabase
+          const { error: updateError } = await supabaseClient
             .from('orders')
             .update({ notes: update.notes })
             .eq('id', update.id);
@@ -1604,20 +1637,17 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         };
 
         // Update in database
-        if (isSupabaseConfigured()) {
-          const supabase = getSupabase();
-          await supabase
-            .from('orders')
-            .update({
-              awb_number: awbData.awbNumber,
-              awb_generated_at: awbData.awbGeneratedAt,
-              awb_status: awbData.awbStatus,
-              awb_tracking_url: awbData.awbTrackingUrl,
-              package_weight: awbData.packageWeight,
-              package_dimensions: JSON.stringify(awbData.packageDimensions),
-            })
-            .eq('id', orderId);
-        }
+        await supabase
+          .from('orders')
+          .update({
+            awb_number: awbData.awbNumber,
+            awb_generated_at: awbData.awbGeneratedAt,
+            awb_status: awbData.awbStatus,
+            awb_tracking_url: awbData.awbTrackingUrl,
+            package_weight: awbData.packageWeight,
+            package_dimensions: JSON.stringify(awbData.packageDimensions),
+          })
+          .eq('id', orderId);
 
         // Update local state
         setOrders(prev => prev.map(o => 
@@ -1681,16 +1711,13 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         };
 
         // Update in database
-        if (isSupabaseConfigured()) {
-          const supabase = getSupabase();
-          await supabase
-            .from('orders')
-            .update({
-              awb_status: updateData.awbStatus,
-              awb_last_update: updateData.awbLastUpdate,
-            })
-            .eq('id', orderId);
-        }
+        await supabase
+          .from('orders')
+          .update({
+            awb_status: updateData.awbStatus,
+            awb_last_update: updateData.awbLastUpdate,
+          })
+          .eq('id', orderId);
 
         // Update local state
         setOrders(prev => prev.map(o => 
@@ -1822,8 +1849,12 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const addUser = async (userData: Omit<AdminUser, 'id'>) => {
     try {
       const newUser = await adminUsersService.create(userData);
-      if (newUser.id) {
+      if (newUser && newUser.id) {
         setUsers(prev => [...prev, newUser]);
+        
+        // Invalidate users cache
+        CacheService.invalidate(CACHE_KEYS.USERS);
+        
         toast.success('Utilizator adăugat cu succes!');
       }
     } catch (error) {
@@ -1836,10 +1867,14 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const updateUser = async (userId: string, updates: Partial<AdminUser>) => {
     try {
       const updatedUser = await adminUsersService.update(userId, updates);
-      if (updatedUser.id) {
+      if (updatedUser && updatedUser.id) {
         setUsers(prev => prev.map(user => 
           user.id === userId ? updatedUser : user
         ));
+        
+        // Invalidate users cache
+        CacheService.invalidate(CACHE_KEYS.USERS);
+        
         toast.success('Utilizator actualizat cu succes!');
         
         // If current user updated their own info, update the currentUser state
@@ -1858,6 +1893,10 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     try {
       await adminUsersService.delete(userId);
       setUsers(prev => prev.filter(user => user.id !== userId));
+      
+      // Invalidate users cache
+      CacheService.invalidate(CACHE_KEYS.USERS);
+      
       toast.success('Utilizator șters cu succes!');
     } catch (error) {
       console.error('Error deleting user:', error);
@@ -2209,6 +2248,11 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const updateBlogPost = async (postId: string, updates: Partial<BlogPost>) => {
     try {
       const updated = await blogPostsService.update(postId, updates);
+      
+      if (!updated) {
+        throw new Error('Failed to update blog post');
+      }
+      
       setBlogPosts(prev => prev.map(post => 
         post.id === postId ? updated : post
       ));

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { Facebook, Instagram, Mail, Phone, MapPin, MessageCircle } from 'lucide-react';
 import logoImage from 'figma:asset/e13722fae17f2ce12beb5ca6d76372429e2ea412.png';
 import anpcLogo from 'figma:asset/eae8b3109dc56d840e1f79f2c33eef2a480957ea.png';

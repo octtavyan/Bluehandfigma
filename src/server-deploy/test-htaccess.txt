@@ -1,0 +1,4 @@
+# Test if .htaccess is being read
+# This will cause a 500 error if Apache reads this file
+
+INTENTIONAL_ERROR_TO_TEST_IF_HTACCESS_WORKS

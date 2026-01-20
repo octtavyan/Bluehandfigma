@@ -2,27 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { AdminLayout } from '../../components/admin/AdminLayout';
 import { Search, TrendingUp, Settings, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
-
-interface SearchStat {
-  query: string;
-  count: number;
-}
+import { unsplashSearchesService, unsplashSettingsService, UnsplashSearchStat } from '../../lib/supabaseDataService';
 
 interface UnsplashSettings {
   curatedQueries: string[];
-  randomImageCount: number;
-  refreshOnPageLoad: boolean;
 }
 
 export const AdminUnsplashPage: React.FC = () => {
-  const [searchStats, setSearchStats] = useState<SearchStat[]>([]);
+  const [searchStats, setSearchStats] = useState<UnsplashSearchStat[]>([]);
   const [totalSearches, setTotalSearches] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [settings, setSettings] = useState<UnsplashSettings>({
     curatedQueries: ['nature', 'abstract', 'architecture', 'minimal', 'landscape'],
-    randomImageCount: 24,
-    refreshOnPageLoad: true,
   });
   const [newQuery, setNewQuery] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -35,22 +26,9 @@ export const AdminUnsplashPage: React.FC = () => {
   const loadSearchStats = async () => {
     try {
       setIsLoading(true);
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/unsplash/search-stats`,
-        {
-          headers: {
-            Authorization: `Bearer ${publicAnonKey}`,
-          },
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error('Failed to load search stats');
-      }
-
-      const data = await response.json();
-      setSearchStats(data.topSearches || []);
-      setTotalSearches(data.totalSearches || 0);
+      const data = await unsplashSearchesService.getStats();
+      setSearchStats(data.topSearches);
+      setTotalSearches(data.totalSearches);
     } catch (error) {
       console.error('Error loading search stats:', error);
       toast.error('Eroare la încărcarea statisticilor de căutare');
@@ -61,20 +39,11 @@ export const AdminUnsplashPage: React.FC = () => {
 
   const loadSettings = async () => {
     try {
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/unsplash/settings`,
-        {
-          headers: {
-            Authorization: `Bearer ${publicAnonKey}`,
-          },
-        }
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.settings) {
-          setSettings(data.settings);
-        }
+      const data = await unsplashSettingsService.get();
+      if (data) {
+        setSettings({
+          curatedQueries: data.curatedQueries
+        });
       }
     } catch (error) {
       console.log('Error loading settings (using defaults):', error);
@@ -84,23 +53,13 @@ export const AdminUnsplashPage: React.FC = () => {
   const saveSettings = async () => {
     try {
       setIsSaving(true);
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/unsplash/settings`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${publicAnonKey}`,
-          },
-          body: JSON.stringify({ settings }),
-        }
-      );
-
-      if (!response.ok) {
+      const success = await unsplashSettingsService.save(settings);
+      
+      if (success) {
+        toast.success('Setările au fost salvate cu succes');
+      } else {
         throw new Error('Failed to save settings');
       }
-
-      toast.success('Setările au fost salvate cu succes');
     } catch (error) {
       console.error('Error saving settings:', error);
       toast.error('Eroare la salvarea setărilor');
@@ -201,55 +160,6 @@ export const AdminUnsplashPage: React.FC = () => {
           </div>
 
           <div className="space-y-6">
-            {/* Random Image Count */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Număr imagini aleatorii pentru Printuri și Canvas
-              </label>
-              <input
-                type="number"
-                min="1"
-                max="50"
-                value={settings.randomImageCount}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    randomImageCount: parseInt(e.target.value) || 24,
-                  })
-                }
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#6994FF]"
-              />
-              <p className="mt-1 text-sm text-gray-500">
-                Câte imagini Unsplash să fie afișate în secțiunea principală
-              </p>
-            </div>
-
-            {/* Refresh on Page Load */}
-            <div>
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settings.refreshOnPageLoad}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      refreshOnPageLoad: e.target.checked,
-                    })
-                  }
-                  className="w-5 h-5 text-[#6994FF] rounded focus:ring-[#6994FF]"
-                />
-                <div>
-                  <div className="text-sm font-medium text-gray-700">
-                    Reîmprospătează imaginile la fiecare încărcare
-                  </div>
-                  <div className="text-sm text-gray-500">
-                    Imaginile Unsplash vor fi diferite de fiecare dată când utilizatorul
-                    vizitează pagina
-                  </div>
-                </div>
-              </label>
-            </div>
-
             {/* Curated Queries */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">

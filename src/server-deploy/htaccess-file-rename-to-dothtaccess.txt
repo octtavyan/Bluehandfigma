@@ -1,0 +1,36 @@
+# BlueHand Canvas API - Apache Configuration
+# 
+# IMPORTANT: Rename this file to ".htaccess" (with a dot at the start, no .txt extension)
+# Upload to: 89.41.38.220:/bluehand.ro/api/.htaccess
+
+# Enable Rewrite Engine
+RewriteEngine On
+
+# Pass Authorization header to PHP
+# This is CRITICAL for authentication to work
+RewriteCond %{HTTP:Authorization} .
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+# Enable CORS headers
+Header always set Access-Control-Allow-Origin "*"
+Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+Header always set Access-Control-Allow-Headers "Content-Type, Authorization"
+
+# Handle OPTIONS requests
+RewriteCond %{REQUEST_METHOD} OPTIONS
+RewriteRule ^(.*)$ $1 [R=200,L]
+
+# Route all requests through index.php
+# Only if the request is not for an actual file/directory
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ index.php/$1 [L,QSA]
+
+# Disable directory listing
+Options -Indexes
+
+# PHP Settings
+php_value upload_max_filesize 20M
+php_value post_max_size 20M
+php_value max_execution_time 300
+php_value memory_limit 256M

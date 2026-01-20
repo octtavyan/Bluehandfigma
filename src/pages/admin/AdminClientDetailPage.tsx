@@ -1,5 +1,5 @@
 import React from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router';
 import { ArrowLeft, Mail, Phone, MapPin, Calendar, DollarSign, Package, Eye, Building2, Edit2, X, Check } from 'lucide-react';
 import { AdminLayout } from '../../components/admin/AdminLayout';
 import { useAdmin } from '../../context/AdminContext';

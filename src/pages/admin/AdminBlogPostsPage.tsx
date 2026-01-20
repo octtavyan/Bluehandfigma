@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { Plus, Search, Edit, Trash2, Eye, EyeOff, User, Calendar, Edit2 } from 'lucide-react';
 import { AdminLayout } from '../../components/admin/AdminLayout';
 import { useAdmin, BlogPost } from '../../context/AdminContext';
@@ -139,26 +139,37 @@ export const AdminBlogPostsPage: React.FC = () => {
 
               {/* Status & Actions */}
               <div className="flex items-center justify-between pt-3 border-t border-gray-200">
-                <button
-                  onClick={() => handleTogglePublish(post)}
-                  className={`px-3 py-1.5 rounded-full text-xs flex items-center space-x-1 ${
-                    post.isPublished
-                      ? 'bg-green-100 text-green-800'
-                      : 'bg-yellow-100 text-yellow-800'
-                  }`}
-                >
-                  {post.isPublished ? (
-                    <>
-                      <Eye className="w-3 h-3" />
-                      <span>Publicat</span>
-                    </>
-                  ) : (
-                    <>
-                      <EyeOff className="w-3 h-3" />
-                      <span>Ciornă</span>
-                    </>
-                  )}
-                </button>
+                {/* Toggle Switch with Status Label */}
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => handleTogglePublish(post)}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                      post.isPublished
+                        ? 'bg-green-500 focus:ring-green-500'
+                        : 'bg-gray-300 focus:ring-gray-400'
+                    }`}
+                    title={post.isPublished ? 'Click pentru a ascunde' : 'Click pentru a publica'}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        post.isPublished ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                  <div className="flex items-center gap-1.5">
+                    {post.isPublished ? (
+                      <>
+                        <Eye className="w-3.5 h-3.5 text-green-600" />
+                        <span className="text-xs font-medium text-green-600">Publicat</span>
+                      </>
+                    ) : (
+                      <>
+                        <EyeOff className="w-3.5 h-3.5 text-gray-500" />
+                        <span className="text-xs font-medium text-gray-500">Ciornă</span>
+                      </>
+                    )}
+                  </div>
+                </div>
 
                 <div className="flex items-center space-x-2">
                   <button
@@ -259,26 +270,37 @@ export const AdminBlogPostsPage: React.FC = () => {
                   <div className="text-sm text-gray-600">{post.views}</div>
                 </td>
                 <td className="px-6 py-4">
-                  <button
-                    onClick={() => handleTogglePublish(post)}
-                    className={`px-3 py-1 rounded-full text-xs flex items-center space-x-1 ${
-                      post.isPublished
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-yellow-100 text-yellow-800'
-                    }`}
-                  >
-                    {post.isPublished ? (
-                      <>
-                        <Eye className="w-3 h-3" />
-                        <span>Publicat</span>
-                      </>
-                    ) : (
-                      <>
-                        <EyeOff className="w-3 h-3" />
-                        <span>Ciornă</span>
-                      </>
-                    )}
-                  </button>
+                  {/* Toggle Switch with Status Label */}
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => handleTogglePublish(post)}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                        post.isPublished
+                          ? 'bg-green-500 focus:ring-green-500'
+                          : 'bg-gray-300 focus:ring-gray-400'
+                      }`}
+                      title={post.isPublished ? 'Click pentru a ascunde' : 'Click pentru a publica'}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          post.isPublished ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                    <div className="flex items-center gap-1.5">
+                      {post.isPublished ? (
+                        <>
+                          <Eye className="w-3.5 h-3.5 text-green-600" />
+                          <span className="text-xs font-medium text-green-600">Publicat</span>
+                        </>
+                      ) : (
+                        <>
+                          <EyeOff className="w-3.5 h-3.5 text-gray-500" />
+                          <span className="text-xs font-medium text-gray-500">Ciornă</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
                 </td>
                 <td className="px-6 py-4">
                   <div className="flex items-center space-x-2">

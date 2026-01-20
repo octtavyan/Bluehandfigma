@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useMemo } from 'react';
 import { CartItem, Product, PersonalizationData } from '../types';
 import { toast } from 'sonner@2.0.3';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { getStorageItem, setStorageItem, removeStorageItem, isIOS } from '../utils/storage';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { trackAddToCartFromProduct } from '../utils/facebookPixel';

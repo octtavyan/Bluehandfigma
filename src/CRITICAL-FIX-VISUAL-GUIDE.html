@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🚨 CRITICAL FIX - Upload .htaccess NOW!</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #f85032 0%, #e73827 100%);
+            padding: 20px;
+            line-height: 1.6;
+            color: #1f2937;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        .critical-banner {
+            background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            text-align: center;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+        }
+        .critical-banner h1 {
+            font-size: 2.5em;
+            margin-bottom: 15px;
+        }
+        .critical-banner p {
+            font-size: 1.3em;
+            margin-bottom: 10px;
+        }
+        .error-box {
+            background: #fef2f2;
+            border-left: 5px solid #dc2626;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        .error-box h3 {
+            color: #dc2626;
+            margin-bottom: 10px;
+            font-size: 1.3em;
+        }
+        .error-box ul {
+            margin-left: 25px;
+        }
+        .error-box li {
+            margin: 8px 0;
+            font-family: 'Courier New', monospace;
+            color: #991b1b;
+        }
+        .solution-box {
+            background: #ecfdf5;
+            border-left: 5px solid #10b981;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        .solution-box h3 {
+            color: #059669;
+            margin-bottom: 10px;
+            font-size: 1.3em;
+        }
+        .step {
+            background: white;
+            border: 2px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 25px;
+            margin: 20px 0;
+            transition: all 0.3s ease;
+        }
+        .step:hover {
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            border-color: #3b82f6;
+        }
+        .step-number {
+            display: inline-block;
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 50px;
+            font-size: 1.5em;
+            font-weight: bold;
+            margin-right: 15px;
+            float: left;
+        }
+        .step-content {
+            margin-left: 70px;
+        }
+        .step h3 {
+            font-size: 1.5em;
+            margin-bottom: 15px;
+            color: #667eea;
+        }
+        .code-block {
+            background: #1f2937;
+            color: #10b981;
+            padding: 20px;
+            border-radius: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            margin: 15px 0;
+            overflow-x: auto;
+            white-space: pre-wrap;
+        }
+        .file-path {
+            background: #eff6ff;
+            border-left: 4px solid #3b82f6;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 8px;
+        }
+        .file-path strong {
+            color: #1e40af;
+            font-size: 1.1em;
+        }
+        .warning {
+            background: #fef3c7;
+            border-left: 5px solid #f59e0b;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        .warning h4 {
+            color: #b45309;
+            margin-bottom: 10px;
+            font-size: 1.2em;
+        }
+        .test-urls {
+            background: #f3f4f6;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        .test-url {
+            display: block;
+            background: white;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 8px;
+            border-left: 4px solid #3b82f6;
+            text-decoration: none;
+            color: #1f2937;
+            transition: all 0.3s ease;
+        }
+        .test-url:hover {
+            box-shadow: 0 5px 15px rgba(59, 130, 246, 0.3);
+            transform: translateX(5px);
+        }
+        .test-url code {
+            font-family: 'Courier New', monospace;
+            color: #3b82f6;
+            font-weight: bold;
+        }
+        .checklist {
+            background: #f9fafb;
+            padding: 25px;
+            border-radius: 12px;
+            margin: 20px 0;
+        }
+        .checklist h3 {
+            margin-bottom: 15px;
+            color: #667eea;
+        }
+        .checklist-item {
+            padding: 12px;
+            margin: 8px 0;
+            background: white;
+            border-radius: 8px;
+            border-left: 4px solid #9ca3af;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .checklist-item input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+        }
+        .checklist-item label {
+            cursor: pointer;
+            flex: 1;
+        }
+        .success-banner {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 15px;
+            margin-top: 30px;
+            text-align: center;
+        }
+        .success-banner h2 {
+            font-size: 2em;
+            margin-bottom: 15px;
+        }
+        .btn {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 30px;
+            border-radius: 10px;
+            text-decoration: none;
+            font-weight: bold;
+            margin: 10px;
+            transition: all 0.3s ease;
+        }
+        .btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+        }
+        .icon {
+            font-size: 2em;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="critical-banner">
+            <h1><span class="icon">🚨</span> CRITICAL: .htaccess FILE MISSING!</h1>
+            <p><strong>This is why ALL your APIs return "Failed to fetch"</strong></p>
+            <p>Fix time: <strong>2 MINUTES</strong></p>
+        </div>
+
+        <div class="error-box">
+            <h3>❌ Current Errors (All Caused by Missing .htaccess):</h3>
+            <ul>
+                <li>❌ Failed to fetch: https://bluehand.ro/api/paintings</li>
+                <li>❌ Failed to fetch: https://bluehand.ro/api/orders</li>
+                <li>❌ Failed to fetch: https://bluehand.ro/api/sizes (when creating/updating)</li>
+                <li>❌ CORS ERROR DETECTED!</li>
+                <li>❌ TypeError: Failed to fetch (all endpoints)</li>
+            </ul>
+        </div>
+
+        <div class="solution-box">
+            <h3>✅ The Solution (ONE FILE FIXES EVERYTHING!):</h3>
+            <p style="margin: 10px 0; font-size: 1.1em;">
+                Upload <strong>.htaccess</strong> file to <code>/public_html/api/</code> 
+                and ALL errors will disappear instantly!
+            </p>
+            <p style="margin: 10px 0;">
+                <strong>Why?</strong> Without .htaccess, Apache doesn't know how to route 
+                <code>/api/paintings</code> to <code>/api/index.php</code> which then routes 
+                to <code>paintings.php</code>. It's like having a phone with no SIM card!
+            </p>
+        </div>
+
+        <div class="step">
+            <div class="step-number">1</div>
+            <div class="step-content">
+                <h3>Upload .htaccess File</h3>
+                
+                <div class="file-path">
+                    <strong>📂 File Location:</strong><br>
+                    <code>/server-deploy/api/.htaccess</code>
+                </div>
+                
+                <div class="file-path">
+                    <strong>📤 Upload To:</strong><br>
+                    <code>/public_html/api/.htaccess</code>
+                </div>
+                
+                <div class="warning">
+                    <h4>⚠️ CRITICAL: File Name Must Be EXACT</h4>
+                    <p>✅ Correct: <code>.htaccess</code> (with dot at start, no extension)</p>
+                    <p>❌ Wrong: <code>htaccess</code>, <code>htaccess.txt</code>, <code>.htaccess.txt</code></p>
+                </div>
+                
+                <h4 style="margin-top: 20px;">Method A: Upload via cPanel (Recommended)</h4>
+                <ol style="margin: 15px 0 15px 25px; line-height: 1.8;">
+                    <li>Open cPanel → File Manager</li>
+                    <li>Click "Settings" (top right)</li>
+                    <li>Check "Show Hidden Files (dotfiles)" → Save</li>
+                    <li>Navigate to <code>/public_html/api/</code></li>
+                    <li>Click "Upload" button</li>
+                    <li>Upload the <code>.htaccess</code> file</li>
+                </ol>
+                
+                <h4 style="margin-top: 20px;">Method B: Create Manually</h4>
+                <ol style="margin: 15px 0 15px 25px; line-height: 1.8;">
+                    <li>cPanel → File Manager → <code>/public_html/api/</code></li>
+                    <li>Click "+ File" button</li>
+                    <li>Name it exactly: <code>.htaccess</code></li>
+                    <li>Right-click the file → Edit</li>
+                    <li>Paste the content from below</li>
+                    <li>Save</li>
+                </ol>
+                
+                <div class="code-block"># BlueHand Canvas API - Apache Configuration
+
+RewriteEngine On
+
+# Pass Authorization header to PHP
+RewriteCond %{HTTP:Authorization} .
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+# Enable CORS headers
+&lt;IfModule mod_headers.c&gt;
+    Header always set Access-Control-Allow-Origin "*"
+    Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+    Header always set Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With"
+&lt;/IfModule&gt;
+
+# Handle OPTIONS requests
+RewriteCond %{REQUEST_METHOD} OPTIONS
+RewriteRule ^(.*)$ index.php [R=200,L]
+
+# Route all requests through index.php
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ index.php [L,QSA]
+
+# Disable directory listing
+Options -Indexes</div>
+            </div>
+        </div>
+
+        <div class="step">
+            <div class="step-number">2</div>
+            <div class="step-content">
+                <h3>Upload Remaining PHP Files</h3>
+                
+                <p style="margin-bottom: 15px;">Upload these files from <code>/server-deploy/api/</code> to <code>/public_html/api/</code>:</p>
+                
+                <div class="checklist-item">
+                    <input type="checkbox" id="file1">
+                    <label for="file1"><code>index.php</code> - API Router (CRITICAL!)</label>
+                </div>
+                <div class="checklist-item">
+                    <input type="checkbox" id="file2" checked disabled>
+                    <label for="file2"><code>config.php</code> - Already uploaded ✓</label>
+                </div>
+                <div class="checklist-item">
+                    <input type="checkbox" id="file3">
+                    <label for="file3"><code>paintings.php</code> - Paintings CRUD</label>
+                </div>
+                <div class="checklist-item">
+                    <input type="checkbox" id="file4">
+                    <label for="file4"><code>orders.php</code> - Orders CRUD</label>
+                </div>
+                <div class="checklist-item">
+                    <input type="checkbox" id="file5">
+                    <label for="file5"><code>auth.php</code> - Authentication</label>
+                </div>
+                <div class="checklist-item">
+                    <input type="checkbox" id="file6" checked disabled>
+                    <label for="file6"><code>sizes.php</code> - Already uploaded ✓</label>
+                </div>
+                <div class="checklist-item">
+                    <input type="checkbox" id="file7" checked disabled>
+                    <label for="file7"><code>categories.php</code> - Already uploaded ✓</label>
+                </div>
+                <div class="checklist-item">
+                    <input type="checkbox" id="file8" checked disabled>
+                    <label for="file8"><code>frame-types.php</code> - Already uploaded ✓</label>
+                </div>
+            </div>
+        </div>
+
+        <div class="step">
+            <div class="step-number">3</div>
+            <div class="step-content">
+                <h3>Test The Fix</h3>
+                
+                <p style="margin-bottom: 15px;">After uploading .htaccess, test these URLs:</p>
+                
+                <div class="test-urls">
+                    <h4 style="margin-bottom: 15px;">Test URLs:</h4>
+                    
+                    <a href="https://bluehand.ro/api/" target="_blank" class="test-url">
+                        <div><strong>1. API Health Check</strong></div>
+                        <code>https://bluehand.ro/api/</code>
+                        <div style="margin-top: 8px; color: #059669;">
+                            ✅ Should return: {"status": "ok", "message": "BlueHand Canvas API v1.0"}
+                        </div>
+                    </a>
+                    
+                    <a href="https://bluehand.ro/api/paintings" target="_blank" class="test-url">
+                        <div><strong>2. Paintings API</strong></div>
+                        <code>https://bluehand.ro/api/paintings</code>
+                        <div style="margin-top: 8px; color: #059669;">
+                            ✅ Should return: {"paintings": []}
+                        </div>
+                    </a>
+                    
+                    <a href="https://bluehand.ro/api/orders" target="_blank" class="test-url">
+                        <div><strong>3. Orders API</strong></div>
+                        <code>https://bluehand.ro/api/orders</code>
+                        <div style="margin-top: 8px; color: #059669;">
+                            ✅ Should return: {"error": "Unauthorized"} (This is correct!)
+                        </div>
+                    </a>
+                    
+                    <a href="https://bluehand.ro/api/sizes" target="_blank" class="test-url">
+                        <div><strong>4. Sizes API</strong></div>
+                        <code>https://bluehand.ro/api/sizes</code>
+                        <div style="margin-top: 8px; color: #059669;">
+                            ✅ Should return: {"sizes": [...]}
+                        </div>
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="checklist">
+            <h3>📋 Final Verification Checklist:</h3>
+            <div class="checklist-item">
+                <input type="checkbox" id="check1">
+                <label for="check1">.htaccess uploaded to /public_html/api/</label>
+            </div>
+            <div class="checklist-item">
+                <input type="checkbox" id="check2">
+                <label for="check2">index.php uploaded to /public_html/api/</label>
+            </div>
+            <div class="checklist-item">
+                <input type="checkbox" id="check3">
+                <label for="check3">paintings.php uploaded</label>
+            </div>
+            <div class="checklist-item">
+                <input type="checkbox" id="check4">
+                <label for="check4">orders.php uploaded</label>
+            </div>
+            <div class="checklist-item">
+                <input type="checkbox" id="check5">
+                <label for="check5">API health check returns OK</label>
+            </div>
+            <div class="checklist-item">
+                <input type="checkbox" id="check6">
+                <label for="check6">Paintings API returns JSON (not error)</label>
+            </div>
+            <div class="checklist-item">
+                <input type="checkbox" id="check7">
+                <label for="check7">Refresh your app - no more errors!</label>
+            </div>
+        </div>
+
+        <div class="success-banner">
+            <h2>🎉 After Upload - ALL ERRORS WILL BE GONE!</h2>
+            <p style="font-size: 1.2em; margin: 15px 0;">
+                ✅ No more "Failed to fetch"<br>
+                ✅ No more CORS errors<br>
+                ✅ Admin panel fully functional<br>
+                ✅ Can add/edit paintings<br>
+                ✅ Can manage sizes<br>
+                ✅ Orders system works<br>
+                ✅ Frontend loads perfectly
+            </p>
+            <a href="/CRITICAL-FIX-HTACCESS.md" class="btn">📖 Read Detailed Guide</a>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { ShoppingCart, Users, DollarSign, TrendingUp, AlertCircle, CheckCircle, Clock, Package } from 'lucide-react';
 import { AdminLayout } from '../../components/admin/AdminLayout';
 import { useAdmin, OrderStatus } from '../../context/AdminContext';
 import { CacheService, CACHE_KEYS } from '../../lib/cacheService';
 import { NotificationSettings } from '../../components/admin/NotificationSettings';
-import { BandwidthDashboard } from '../../components/admin/BandwidthDashboard';
 
 export const AdminDashboardPage: React.FC = () => {
   const navigate = useNavigate();
@@ -310,18 +309,6 @@ export const AdminDashboardPage: React.FC = () => {
       {currentUser?.role === 'full-admin' && (
         <div className="mt-6">
           <NotificationSettings />
-        </div>
-      )}
-
-      {/* Bandwidth Dashboard */}
-      {currentUser?.role === 'full-admin' && (
-        <div className="mt-6">
-          <BandwidthDashboard
-            totalPaintings={paintings?.length || 0}
-            optimizedPaintings={paintings?.filter(p => p.imageUrls).length || 0}
-            totalOrders={orders?.length || 0}
-            totalBlogPosts={blogPosts?.length || 0}
-          />
         </div>
       )}
     </AdminLayout>

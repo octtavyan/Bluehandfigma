@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { ChevronLeft, ChevronRight, Image, Heart, Sparkles } from 'lucide-react';
 import { useAdmin } from '../context/AdminContext';
 import { unsplashService, UnsplashImage } from '../services/unsplashService';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 export const HomePage: React.FC = () => {
   const { heroSlides } = useAdmin();
@@ -39,24 +38,11 @@ export const HomePage: React.FC = () => {
       try {
         setIsLoadingUnsplash(true);
         
-        // Fetch Unsplash settings from admin to get curated keywords
-        const settingsResponse = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/settings/unsplash`,
-          {
-            headers: {
-              'Authorization': `Bearer ${publicAnonKey}`,
-            },
-          }
-        );
+        // Fetch Unsplash settings from Supabase
+        const { unsplashSettingsService } = await import('../lib/supabaseDataService');
+        const settings = await unsplashSettingsService.get();
         
-        let curatedQueries = ['nature', 'abstract', 'architecture', 'minimal', 'landscape'];
-        
-        if (settingsResponse.ok) {
-          const data = await settingsResponse.json();
-          if (data.settings && data.settings.curatedQueries && data.settings.curatedQueries.length > 0) {
-            curatedQueries = data.settings.curatedQueries;
-          }
-        }
+        let curatedQueries = settings?.curatedQueries || ['nature', 'abstract', 'architecture', 'minimal', 'landscape'];
         
         // Shuffle queries to get variety
         const shuffledQueries = [...curatedQueries].sort(() => Math.random() - 0.5);

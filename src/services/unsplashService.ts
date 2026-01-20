@@ -50,9 +50,32 @@ class UnsplashService {
     });
   }
 
-  async searchPhotos(query: string, page: number = 1, perPage: number = 20): Promise<UnsplashSearchResult> {
+  async searchPhotos(
+    query: string, 
+    page: number = 1, 
+    perPage: number = 20,
+    options?: {
+      orientation?: 'landscape' | 'portrait' | 'squarish';
+      color?: 'black_and_white' | 'black' | 'white' | 'yellow' | 'orange' | 'red' | 'purple' | 'magenta' | 'green' | 'teal' | 'blue';
+      orderBy?: 'relevant' | 'latest';
+    }
+  ): Promise<UnsplashSearchResult> {
     try {
-      const url = `${UNSPLASH_API_URL}/search/photos?query=${encodeURIComponent(query)}&page=${page}&per_page=${perPage}&orientation=portrait`;
+      // Build URL with optional filters
+      let url = `${UNSPLASH_API_URL}/search/photos?query=${encodeURIComponent(query)}&page=${page}&per_page=${perPage}`;
+      
+      if (options?.orientation) {
+        url += `&orientation=${options.orientation}`;
+      }
+      
+      if (options?.color) {
+        url += `&color=${options.color}`;
+      }
+      
+      if (options?.orderBy) {
+        url += `&order_by=${options.orderBy}`;
+      }
+      
       const response = await this.fetchWithAuth(url);
       
       if (!response.ok) {
@@ -350,6 +373,37 @@ class UnsplashService {
       
       return true;
     });
+  }
+
+  // Map our Romanian color names to Unsplash API color parameters
+  mapColorToUnsplashParam(colorName: string): string | undefined {
+    const colorMap: { [key: string]: string } = {
+      'Roșu': 'red',
+      'Portocaliu': 'orange',
+      'Galben': 'yellow',
+      'Verde': 'green',
+      'Albastru': 'blue',
+      'Mov': 'purple',
+      'Roz': 'magenta',
+      'Maro': 'orange', // Closest match
+      'Negru': 'black',
+      'Alb': 'white',
+      'Gri': 'black_and_white',
+      'Bej': 'white', // Closest match
+    };
+    
+    return colorMap[colorName];
+  }
+
+  // Map our orientation to Unsplash API orientation parameter
+  mapOrientationToUnsplashParam(orientation: string): 'landscape' | 'portrait' | 'squarish' | undefined {
+    const orientationMap: { [key: string]: 'landscape' | 'portrait' | 'squarish' } = {
+      'landscape': 'landscape',
+      'portrait': 'portrait',
+      'square': 'squarish',
+    };
+    
+    return orientationMap[orientation];
   }
 }
 

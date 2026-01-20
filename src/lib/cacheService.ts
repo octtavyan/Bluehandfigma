@@ -1,5 +1,21 @@
-// Cache service to reduce Supabase bandwidth usage
-// Stores data in localStorage with TTL (time-to-live)
+// Cache Service for BlueHand Canvas
+// Provides localStorage-based caching with TTL (Time To Live)
+
+// CACHE VERSION: Increment this to invalidate all old caches
+const CACHE_VERSION = 'v5_users_reload'; // ✨ INCREMENT THIS TO CLEAR ALL CACHES
+
+export const CACHE_KEYS = {
+  PAINTINGS: `paintings_${CACHE_VERSION}`,
+  SIZES: `sizes_${CACHE_VERSION}`,
+  FRAME_TYPES: `frame_types_${CACHE_VERSION}`,
+  ORDERS: `orders_${CACHE_VERSION}`,
+  CLIENTS: `clients_${CACHE_VERSION}`,
+  USERS: `users_${CACHE_VERSION}`,
+  HERO_SLIDES: `hero_slides_${CACHE_VERSION}`,
+  BLOG_POSTS: `blog_posts_${CACHE_VERSION}`,
+  CATEGORIES: `categories_${CACHE_VERSION}`,
+  SUBCATEGORIES: `subcategories_${CACHE_VERSION}`,
+} as const;
 
 interface CacheEntry<T> {
   data: T;
@@ -157,20 +173,6 @@ export class CacheService {
     }
   }
 }
-
-// Pre-defined cache keys
-export const CACHE_KEYS = {
-  PAINTINGS: 'paintings',
-  ORDERS: 'orders',
-  CLIENTS: 'clients',
-  BLOG_POSTS: 'blog_posts',
-  HERO_SLIDES: 'hero_slides',
-  USERS: 'users',
-  SIZES: 'sizes',
-  FRAME_TYPES: 'frame_types',
-  CATEGORIES: 'categories',
-  SUBCATEGORIES: 'subcategories',
-};
 
 // Cache TTL configurations (in minutes)
 export const CACHE_TTL = {

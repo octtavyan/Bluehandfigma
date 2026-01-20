@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router';
 import { SlidersHorizontal } from 'lucide-react';
 import { ProductCard } from '../components/ProductCard';
 

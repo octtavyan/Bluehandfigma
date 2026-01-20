@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Quick API Test</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #000; color: #0f0; }
+        .test { margin: 20px 0; padding: 15px; border: 1px solid #0f0; }
+        .success { color: #0f0; }
+        .error { color: #f00; }
+        .info { color: #ff0; }
+        button { background: #0f0; color: #000; border: none; padding: 10px 20px; cursor: pointer; margin: 5px; }
+        pre { background: #111; padding: 10px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>🔥 BlueHand Quick API Test</h1>
+    
+    <div class="test">
+        <h2>Step 1: CORS Test</h2>
+        <button onclick="test('/api/cors-test.php')">Test CORS</button>
+        <div id="cors-result"></div>
+    </div>
+    
+    <div class="test">
+        <h2>Step 2: Health Check</h2>
+        <button onclick="test('/api/health')">Test Health</button>
+        <div id="health-result"></div>
+    </div>
+    
+    <div class="test">
+        <h2>Step 3: Paintings</h2>
+        <button onclick="test('/api/paintings')">Test Paintings</button>
+        <div id="paintings-result"></div>
+    </div>
+    
+    <div class="test">
+        <h2>Step 4: Orders (will fail without auth - that's OK)</h2>
+        <button onclick="test('/api/orders')">Test Orders</button>
+        <div id="orders-result"></div>
+    </div>
+
+    <script>
+        async function test(url) {
+            const resultId = url.split('/').pop().replace('.php', '') + '-result';
+            const container = document.getElementById(resultId);
+            
+            container.innerHTML = '<p class="info">⏳ Testing ' + url + '...</p>';
+            
+            try {
+                console.log('Fetching:', url);
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    container.innerHTML = `
+                        <p class="success">✅ SUCCESS (${response.status})</p>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    `;
+                } else {
+                    container.innerHTML = `
+                        <p class="error">❌ ERROR (${response.status})</p>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    `;
+                }
+            } catch (error) {
+                container.innerHTML = `
+                    <p class="error">❌ FETCH FAILED: ${error.message}</p>
+                    <p class="info">This means:</p>
+                    <ul>
+                        <li>CORS headers not working</li>
+                        <li>File doesn't exist (check path)</li>
+                        <li>PHP fatal error (check error log)</li>
+                        <li>Server not responding</li>
+                    </ul>
+                    <p>Check browser console (F12) for more details</p>
+                `;
+                console.error('Fetch error:', error);
+            }
+        }
+        
+        // Auto-run on page load
+        window.addEventListener('load', () => {
+            console.log('🚀 Running auto-tests...');
+            setTimeout(() => test('/api/cors-test.php'), 500);
+            setTimeout(() => test('/api/health'), 1500);
+            setTimeout(() => test('/api/paintings'), 2500);
+        });
+    </script>
+</body>
+</html>

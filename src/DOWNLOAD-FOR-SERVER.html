@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🚀 BlueHand Canvas - Deployment Instructions</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+        h2 {
+            color: #764ba2;
+            margin: 30px 0 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+        h3 {
+            color: #667eea;
+            margin: 20px 0 10px;
+        }
+        .warning {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .success {
+            background: #d4edda;
+            border-left: 4px solid #28a745;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .error {
+            background: #f8d7da;
+            border-left: 4px solid #dc3545;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .code {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 15px 0;
+            font-family: 'Courier New', monospace;
+            overflow-x: auto;
+        }
+        .step {
+            background: #f8f9fa;
+            padding: 20px;
+            margin: 15px 0;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        .step-number {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            background: #667eea;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 30px;
+            margin-right: 10px;
+            font-weight: bold;
+        }
+        ul {
+            margin: 15px 0;
+            padding-left: 30px;
+        }
+        li {
+            margin: 8px 0;
+        }
+        .button {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: bold;
+            margin: 10px 10px 10px 0;
+            transition: background 0.3s;
+        }
+        .button:hover {
+            background: #5568d3;
+        }
+        .highlight {
+            background: yellow;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+        .checklist {
+            list-style: none;
+            padding: 0;
+        }
+        .checklist li:before {
+            content: "☐ ";
+            margin-right: 10px;
+            font-size: 1.2em;
+        }
+        pre {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 15px 0;
+        }
+        .file-path {
+            color: #28a745;
+            font-weight: bold;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 BlueHand Canvas Deployment</h1>
+        <p><strong>Project:</strong> Romanian Canvas Art E-commerce Platform</p>
+        <p><strong>Server:</strong> bluehand.ro (89.41.38.220)</p>
+        <p><strong>Backend:</strong> PHP + MySQL</p>
+
+        <div class="error">
+            <h3>⚠️ CRITICAL: You're In Figma Make (Browser Environment)</h3>
+            <p><strong>Problem:</strong> Figma Make doesn't have a <code>/dist/</code> folder or <code>npm build</code> command!</p>
+            <p><strong>Solution:</strong> Follow the steps below to deploy WITHOUT building locally.</p>
+        </div>
+
+        <h2>📋 What Changed Recently:</h2>
+        <div class="step">
+            <p><strong>File Modified:</strong> <span class="file-path">/lib/phpDataService.ts</span></p>
+            <p><strong>Change:</strong> Enhanced error logging to debug CORS issues</p>
+            <p><strong>Impact:</strong> Frontend needs redeployment</p>
+        </div>
+
+        <h2>🎯 OPTION 1: Export From Figma Make (EASIEST)</h2>
+        <div class="step">
+            <span class="step-number">1</span>
+            <strong>Look for an "Export" or "Download" button in Figma Make</strong>
+            <ul>
+                <li>Check the top toolbar</li>
+                <li>Look in the menu (hamburger icon)</li>
+                <li>Try right-clicking on the project name</li>
+                <li>Look for "Download", "Export", or "Build" options</li>
+            </ul>
+        </div>
+
+        <div class="step">
+            <span class="step-number">2</span>
+            <strong>Download the built project as a ZIP file</strong>
+            <ul>
+                <li>Extract the ZIP on your computer</li>
+                <li>Look for the built files (usually in <code>dist/</code> or <code>build/</code> folder)</li>
+            </ul>
+        </div>
+
+        <div class="step">
+            <span class="step-number">3</span>
+            <strong>Upload to your server via cPanel</strong>
+            <ul>
+                <li>Go to cPanel File Manager</li>
+                <li>Navigate to <code>/public_html/</code></li>
+                <li>Upload <code>index.html</code> → <code>/public_html/index.html</code></li>
+                <li>Upload <code>assets/</code> folder → <code>/public_html/assets/</code></li>
+                <li><span class="highlight">Don't overwrite /api/ or /uploads/ folders!</span></li>
+            </ul>
+        </div>
+
+        <h2>🎯 OPTION 2: Download Source & Build Locally</h2>
+        
+        <div class="warning">
+            <strong>Requirements:</strong>
+            <ul>
+                <li>✅ Node.js installed (download from <a href="https://nodejs.org" target="_blank">nodejs.org</a>)</li>
+                <li>✅ Git installed (optional)</li>
+            </ul>
+        </div>
+
+        <div class="step">
+            <span class="step-number">1</span>
+            <strong>Export project from Figma Make</strong>
+            <p>Look for "Export to GitHub" or "Download as ZIP"</p>
+        </div>
+
+        <div class="step">
+            <span class="step-number">2</span>
+            <strong>Open terminal/command prompt and navigate to project folder</strong>
+            <pre>cd path/to/bluehand-canvas</pre>
+        </div>
+
+        <div class="step">
+            <span class="step-number">3</span>
+            <strong>Install dependencies</strong>
+            <pre>npm install</pre>
+        </div>
+
+        <div class="step">
+            <span class="step-number">4</span>
+            <strong>Build the project</strong>
+            <pre>npm run build</pre>
+            <p>This creates a <code>/dist/</code> folder with browser-ready files</p>
+        </div>
+
+        <div class="step">
+            <span class="step-number">5</span>
+            <strong>Upload the built files to server</strong>
+            <ul>
+                <li>Go to cPanel File Manager</li>
+                <li>Navigate to <code>/public_html/</code></li>
+                <li>Upload everything from <code>/dist/</code> to <code>/public_html/</code></li>
+                <li><span class="highlight">Don't overwrite /api/ or /uploads/ folders!</span></li>
+            </ul>
+        </div>
+
+        <h2>🎯 OPTION 3: Request AI to Generate Download Package</h2>
+        
+        <div class="step">
+            <span class="step-number">1</span>
+            <strong>Ask the AI assistant:</strong>
+            <pre>"Please create a complete deployment package with all compiled files ready to upload"</pre>
+        </div>
+
+        <div class="step">
+            <span class="step-number">2</span>
+            <strong>The AI will generate:</strong>
+            <ul>
+                <li>A complete <code>index.html</code> with all code bundled</li>
+                <li>Inline CSS and JavaScript</li>
+                <li>Ready to upload directly to server</li>
+            </ul>
+        </div>
+
+        <h2>✅ After Upload - Testing Checklist:</h2>
+        
+        <ul class="checklist">
+            <li>Clear browser cache (Ctrl+Shift+Delete)</li>
+            <li>Hard refresh (Ctrl+Shift+R or Cmd+Shift+R)</li>
+            <li>Open <a href="https://bluehand.ro" target="_blank">https://bluehand.ro</a></li>
+            <li>Press F12 to open Developer Console</li>
+            <li>Look for the new detailed error logs</li>
+            <li>Check Network tab for API request details</li>
+            <li>Verify CORS headers are present</li>
+        </ul>
+
+        <h2>🔍 What to Look For in Console:</h2>
+        
+        <div class="success">
+            <p><strong>You should see enhanced debug logs like:</strong></p>
+            <pre>🎨 Fetching paintings from: https://bluehand.ro/api/paintings
+📡 Response status: 200
+📡 Response headers: {...}
+📡 CORS headers: {...}</pre>
+        </div>
+
+        <h2>📂 Files Overview:</h2>
+        
+        <div class="code">
+            <strong>Modified Files (need deployment):</strong><br>
+            ✏️ /lib/phpDataService.ts<br><br>
+
+            <strong>Server Files (already uploaded):</strong><br>
+            ✅ /api/.htaccess<br>
+            ✅ /api/index.php<br>
+            ✅ /api/config.php<br>
+            ✅ /api/paintings.php<br>
+            ✅ /api/orders.php<br>
+            ✅ /api/auth.php
+        </div>
+
+        <h2>⚠️ IMPORTANT REMINDERS:</h2>
+        
+        <div class="warning">
+            <ul>
+                <li>✅ DO upload: <code>index.html</code> and <code>assets/</code></li>
+                <li>❌ DON'T overwrite: <code>/api/</code> folder</li>
+                <li>❌ DON'T overwrite: <code>/uploads/</code> folder</li>
+                <li>✅ DO clear browser cache after upload</li>
+                <li>✅ DO check console (F12) for new error messages</li>
+            </ul>
+        </div>
+
+        <h2>🆘 Still Stuck?</h2>
+        
+        <div class="step">
+            <p><strong>Ask the AI to:</strong></p>
+            <ul>
+                <li>"Create a single-file deployment bundle"</li>
+                <li>"Generate a self-contained HTML file"</li>
+                <li>"Create an inline build I can copy-paste"</li>
+            </ul>
+        </div>
+
+        <div class="success">
+            <h3>✅ Next Steps After Deployment:</h3>
+            <ol>
+                <li>Upload the built files</li>
+                <li>Clear browser cache</li>
+                <li>Open console (F12)</li>
+                <li>Check the new error logs</li>
+                <li>Report back what you see!</li>
+            </ol>
+        </div>
+
+        <hr style="margin: 40px 0;">
+        
+        <p style="text-align: center; color: #666;">
+            <strong>BlueHand Canvas</strong><br>
+            Romanian Art E-commerce Platform<br>
+            Powered by PHP + MySQL on bluehand.ro
+        </p>
+    </div>
+</body>
+</html>

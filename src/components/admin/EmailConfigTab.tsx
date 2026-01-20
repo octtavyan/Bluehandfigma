@@ -31,6 +31,7 @@ export const EmailConfigTab: React.FC = () => {
   const loadSettings = async () => {
     setLoading(true);
     try {
+      // Use Edge Function to get settings (bypasses RLS)
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/email/settings`,
         {
@@ -62,6 +63,12 @@ export const EmailConfigTab: React.FC = () => {
 
     setSaving(true);
     try {
+      const updatedSettings = {
+        ...settings,
+        isConfigured: true,
+      };
+      
+      // Use Edge Function to save settings (bypasses RLS)
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/email/settings`,
         {
@@ -70,18 +77,16 @@ export const EmailConfigTab: React.FC = () => {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${publicAnonKey}`,
           },
-          body: JSON.stringify({
-            ...settings,
-            isConfigured: true,
-          }),
+          body: JSON.stringify(updatedSettings),
         }
       );
 
       if (response.ok) {
+        setSettings(updatedSettings);
         toast.success('Setări email salvate cu succes!');
-        await loadSettings();
       } else {
-        throw new Error('Failed to save settings');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to save settings');
       }
     } catch (error) {
       console.error('Error saving email settings:', error);
@@ -104,6 +109,7 @@ export const EmailConfigTab: React.FC = () => {
 
     setTesting(true);
     try {
+      // Call Supabase Edge Function for email testing
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/email/test`,
         {

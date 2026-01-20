@@ -1,15 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router';
 import { ArrowLeft, Package, User, MapPin, Phone, Mail, Calendar, CreditCard, MessageSquare, X, CheckCircle, Download, Eye, ExternalLink, History, Check, XCircle, FileText } from 'lucide-react';
 import { AdminLayout } from '../../components/admin/AdminLayout';
 import { useAdmin, OrderStatus } from '../../context/AdminContext';
 import type { OrderNote } from '../../context/AdminContext';
-import { AWBCard } from '../../components/admin/AWBCard';
 
 export const AdminOrderDetailPage: React.FC = () => {
   const { orderId } = useParams<{ orderId: string }>();
   const navigate = useNavigate();
-  const { orders, updateOrderStatus, updateOrderNotes, currentUser, sizes, addOrderNote, markNoteAsRead, closeOrderNote, getUnreadNotesCount, loadOrderDetails, generateAWB, updateAWBTracking, downloadAWBLabel, paintings, getFrameTypeById } = useAdmin();
+  const { orders, updateOrderStatus, updateOrderNotes, currentUser, sizes, addOrderNote, markNoteAsRead, closeOrderNote, getUnreadNotesCount, loadOrderDetails, paintings, getFrameTypeById } = useAdmin();
   
   const order = orders.find(o => o.id === orderId);
   const [notes, setNotes] = useState(order?.notes || '');
@@ -327,22 +326,6 @@ export const AdminOrderDetailPage: React.FC = () => {
             </div>
           )}
         </div>
-      </div>
-
-      {/* AWB FAN Courier Section */}
-      <div className="mb-6">
-        <AWBCard
-          order={order}
-          onGenerateAWB={async () => {
-            await generateAWB(order.id);
-          }}
-          onUpdateTracking={async () => {
-            await updateAWBTracking(order.id);
-          }}
-          onDownloadLabel={async () => {
-            await downloadAWBLabel(order.id);
-          }}
-        />
       </div>
 
       {/* Canvas Items */}
@@ -798,8 +781,12 @@ export const AdminOrderDetailPage: React.FC = () => {
 
       {/* Status Change Modal */}
       {showStatusModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div 
+            className="bg-white rounded-lg p-6 max-w-md w-full"
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
             <h3 className="text-xl text-gray-900 mb-4">Schimbă Status Comandă</h3>
             
             <div className="mb-4">

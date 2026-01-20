@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Login API</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        button {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #1d4ed8;
+        }
+        .result {
+            background: #f8f8f8;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 15px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 12px;
+            overflow-x: auto;
+        }
+        .success {
+            border-left: 4px solid #10b981;
+        }
+        .error {
+            border-left: 4px solid #ef4444;
+        }
+        input {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin: 5px;
+            width: 200px;
+        }
+        h2 {
+            color: #1f2937;
+            margin-top: 0;
+        }
+        .label {
+            display: inline-block;
+            width: 100px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 BlueHand Login API Test</h1>
+    
+    <div class="test-section">
+        <h2>1. Test Health Endpoint</h2>
+        <button onclick="testHealth()">Test Health API</button>
+        <div id="healthResult" class="result" style="display: none;"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>2. Test Login with Custom Credentials</h2>
+        <div>
+            <label class="label">Username:</label>
+            <input type="text" id="username" value="admin" />
+        </div>
+        <div>
+            <label class="label">Password:</label>
+            <input type="password" id="password" value="admin123" />
+        </div>
+        <br>
+        <button onclick="testLogin()">Test Login</button>
+        <button onclick="showPassword()">Show/Hide Password</button>
+        <div id="loginResult" class="result" style="display: none;"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>3. Raw Request Details</h2>
+        <div id="requestDetails" class="result" style="display: none;"></div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'https://bluehand.ro/api';
+
+        function showResult(elementId, data, isSuccess) {
+            const element = document.getElementById(elementId);
+            element.style.display = 'block';
+            element.className = 'result ' + (isSuccess ? 'success' : 'error');
+            element.textContent = JSON.stringify(data, null, 2);
+        }
+
+        function showPassword() {
+            const input = document.getElementById('password');
+            input.type = input.type === 'password' ? 'text' : 'password';
+        }
+
+        async function testHealth() {
+            console.log('=== TESTING HEALTH API ===');
+            try {
+                const response = await fetch(`${API_BASE_URL}/health.php`);
+                const data = await response.json();
+                console.log('Health Response:', data);
+                showResult('healthResult', data, data.success);
+            } catch (error) {
+                console.error('Health Error:', error);
+                showResult('healthResult', { error: error.message }, false);
+            }
+        }
+
+        async function testLogin() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+
+            console.log('=== TESTING LOGIN API ===');
+            console.log('Username:', username);
+            console.log('Password:', password);
+
+            const requestBody = { username, password };
+            console.log('Request Body:', requestBody);
+
+            // Show request details
+            const requestDetails = {
+                url: `${API_BASE_URL}/auth/login.php`,
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: requestBody
+            };
+            showResult('requestDetails', requestDetails, true);
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/auth/login.php`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(requestBody),
+                });
+
+                console.log('Response Status:', response.status);
+                console.log('Response Headers:', [...response.headers.entries()]);
+
+                let data;
+                const contentType = response.headers.get('content-type');
+                
+                if (contentType && contentType.includes('application/json')) {
+                    data = await response.json();
+                    console.log('JSON Response:', data);
+                } else {
+                    const text = await response.text();
+                    console.log('Text Response:', text);
+                    data = { 
+                        error: 'Non-JSON response', 
+                        contentType,
+                        responseText: text.substring(0, 500)
+                    };
+                }
+
+                showResult('loginResult', data, data.success);
+
+            } catch (error) {
+                console.error('Login Error:', error);
+                showResult('loginResult', { 
+                    error: error.message,
+                    stack: error.stack 
+                }, false);
+            }
+        }
+
+        // Auto-test health on page load
+        window.addEventListener('load', () => {
+            console.log('Page loaded. Testing health endpoint...');
+            testHealth();
+        });
+    </script>
+</body>
+</html>

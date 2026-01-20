@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { FileText, Home, ShoppingBag, Image, Palette, ShoppingCart, Percent, BookOpen, Mail, FileCheck, Shield } from 'lucide-react';
 
 interface SitemapLink {

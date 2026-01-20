@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔍 Check Your Table Structure</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #f5576c;
+            margin-bottom: 20px;
+            font-size: 2.5em;
+            text-align: center;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        h2 {
+            color: #f093fb;
+            margin: 30px 0 15px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #f093fb;
+        }
+        .error-box {
+            background: #f8d7da;
+            border-left: 5px solid #dc3545;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+        }
+        .option {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            margin: 20px 0;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+        .option h3 {
+            color: white;
+            margin-bottom: 15px;
+            font-size: 1.8em;
+        }
+        .step {
+            background: rgba(255,255,255,0.2);
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+        }
+        .step-number {
+            display: inline-block;
+            width: 35px;
+            height: 35px;
+            background: white;
+            color: #667eea;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 35px;
+            margin-right: 10px;
+            font-weight: bold;
+        }
+        pre {
+            background: #2d2d2d;
+            color: #4CAF50;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 15px 0;
+        }
+        .highlight {
+            background: #ffd700;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-weight: bold;
+            color: #000;
+        }
+        .url-box {
+            background: #e3f2fd;
+            border: 3px dashed #2196F3;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 12px;
+            text-align: center;
+            font-size: 1.3em;
+            font-family: 'Courier New', monospace;
+            color: #2196F3;
+            font-weight: bold;
+        }
+        .info {
+            background: #fff3cd;
+            border-left: 5px solid #ffc107;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 We Need To See Your Tables!</h1>
+        
+        <div class="error-box">
+            <strong>❌ Errors You're Getting:</strong><br>
+            <code>#1054 - Unknown column 'sort_order'</code><br>
+            <code>#1054 - Unknown column 'slug'</code>
+            <br><br>
+            <strong>🔍 This means:</strong> Your table columns are different than expected!
+        </div>
+
+        <div class="info">
+            <h3>📋 We Need To Know:</h3>
+            <p style="font-size: 1.2em; margin-top: 10px;">
+                <strong>What columns do YOUR tables actually have?</strong>
+            </p>
+            <p style="margin-top: 10px;">Once we know this, I can create INSERT statements that work perfectly with YOUR database!</p>
+        </div>
+
+        <h2>Choose ONE of these 2 options:</h2>
+
+        <!-- OPTION 1 -->
+        <div class="option">
+            <h3>🚀 OPTION 1: Use PHP Checker (Easiest!)</h3>
+            
+            <div class="step">
+                <span class="step-number">1</span>
+                <strong>Upload The File</strong>
+                <ul style="margin-left: 50px; margin-top: 10px;">
+                    <li>From Figma Make: <code>/server-deploy/api/check-tables.php</code></li>
+                    <li>To Server: <code>/public_html/api/check-tables.php</code></li>
+                </ul>
+            </div>
+
+            <div class="step">
+                <span class="step-number">2</span>
+                <strong>Visit This URL</strong>
+                <div class="url-box" style="margin-top: 15px;">
+                    https://bluehand.ro/api/check-tables.php
+                </div>
+            </div>
+
+            <div class="step">
+                <span class="step-number">3</span>
+                <strong>Screenshot The Page</strong>
+                <ul style="margin-left: 50px; margin-top: 10px;">
+                    <li>Take a screenshot of the ENTIRE page</li>
+                    <li>Send it to me</li>
+                    <li>I'll see exactly what columns you have!</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- OPTION 2 -->
+        <div class="option" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+            <h3>📊 OPTION 2: Use phpMyAdmin (Manual)</h3>
+            
+            <div class="step">
+                <span class="step-number">1</span>
+                <strong>Open phpMyAdmin</strong>
+                <ul style="margin-left: 50px; margin-top: 10px;">
+                    <li>Login to cPanel</li>
+                    <li>Click "phpMyAdmin"</li>
+                    <li>Select database: <code>wiseguy_bluehand</code></li>
+                </ul>
+            </div>
+
+            <div class="step">
+                <span class="step-number">2</span>
+                <strong>Click "SQL" Tab</strong>
+            </div>
+
+            <div class="step">
+                <span class="step-number">3</span>
+                <strong>Run This SQL</strong>
+                <pre style="margin-top: 10px;">DESCRIBE categories;
+DESCRIBE frame_types;
+DESCRIBE sizes;</pre>
+            </div>
+
+            <div class="step">
+                <span class="step-number">4</span>
+                <strong>Screenshot The Results</strong>
+                <ul style="margin-left: 50px; margin-top: 10px;">
+                    <li>Take screenshots of ALL 3 tables</li>
+                    <li>Send them to me</li>
+                </ul>
+            </div>
+        </div>
+
+        <h2>📸 What I Need To See:</h2>
+
+        <div class="info">
+            <p style="font-size: 1.1em;">I need to know which columns exist in each table:</p>
+            
+            <h4 style="margin-top: 20px;">For <code>categories</code> table:</h4>
+            <ul style="margin-left: 30px;">
+                <li>Does it have <span class="highlight">slug</span>?</li>
+                <li>Does it have <span class="highlight">sort_order</span>?</li>
+                <li>Does it have <span class="highlight">description</span>?</li>
+                <li>Does it have <span class="highlight">active</span>?</li>
+            </ul>
+
+            <h4 style="margin-top: 20px;">For <code>frame_types</code> table:</h4>
+            <ul style="margin-left: 30px;">
+                <li>Does it have <span class="highlight">slug</span>?</li>
+                <li>Does it have <span class="highlight">price_percentage</span>?</li>
+                <li>Does it have <span class="highlight">description</span>?</li>
+            </ul>
+
+            <h4 style="margin-top: 20px;">For <code>sizes</code> table:</h4>
+            <ul style="margin-left: 30px;">
+                <li>Does it have <span class="highlight">base_price</span> or <span class="highlight">price</span>?</li>
+                <li>Does it have <span class="highlight">width</span> and <span class="highlight">height</span>?</li>
+            </ul>
+        </div>
+
+        <h2>🎯 After I See Your Structure:</h2>
+
+        <div style="background: #d4edda; padding: 20px; border-radius: 8px; border-left: 5px solid #28a745;">
+            <h3 style="color: #155724;">✅ I Will Create:</h3>
+            <ul style="margin-left: 30px; margin-top: 15px; font-size: 1.1em;">
+                <li>Custom INSERT statements that match YOUR exact columns</li>
+                <li>No more "Unknown column" errors</li>
+                <li>Working API endpoints at:
+                    <ul style="margin-top: 10px;">
+                        <li>https://bluehand.ro/api/categories</li>
+                        <li>https://bluehand.ro/api/frame-types</li>
+                        <li>https://bluehand.ro/api/sizes</li>
+                    </ul>
+                </li>
+            </ul>
+        </div>
+
+        <hr style="margin: 40px 0; border: 2px solid #f093fb;">
+
+        <div style="text-align: center; padding: 30px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; color: white;">
+            <h2 style="color: white; margin-bottom: 15px;">🚀 Choose Your Path:</h2>
+            <p style="font-size: 1.3em; margin-bottom: 20px;">
+                <strong>Option 1:</strong> Upload check-tables.php → Visit URL → Screenshot
+            </p>
+            <p style="font-size: 1.3em;">
+                <strong>Option 2:</strong> phpMyAdmin → Run DESCRIBE → Screenshot
+            </p>
+            <p style="margin-top: 30px; font-size: 1.1em;">
+                Either way, I need to see your column names! 📸
+            </p>
+        </div>
+    </div>
+</body>
+</html>

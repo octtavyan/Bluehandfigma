@@ -1,12 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { Check, CreditCard, Truck, Loader2 } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { useAdmin } from '../context/AdminContext';
 import { toast } from 'sonner@2.0.3';
 import type { CanvasItemType } from '../context/AdminContext';
 import { romanianCounties } from '../data/romaniaData';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 type CheckoutStep = 'delivery' | 'details' | 'payment' | 'confirmation';
 
@@ -287,12 +286,11 @@ export const CheckoutPage = () => {
         
         try {
           const paymentResponse = await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/netopia/start-payment`,
+            'https://bluehand.ro/api/index.php?action=netopia_start_payment',
             {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${publicAnonKey}`,
               },
               body: JSON.stringify({
                 orderId: (createdOrder as any).id || Date.now().toString(),
@@ -329,11 +327,10 @@ export const CheckoutPage = () => {
         console.log('📧 Sending confirmation email...');
         const orderNumber = Date.now().toString().slice(-8); // Generate simple order number
         
-        const emailPromise = fetch(`https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/send-order-confirmation`, {
+        const emailPromise = fetch('https://bluehand.ro/api/index.php?action=send_order_confirmation', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${publicAnonKey}`,
           },
           body: JSON.stringify({
             orderNumber,

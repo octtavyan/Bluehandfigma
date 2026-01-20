@@ -1,18 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useAdmin } from '../context/AdminContext';
-import { Link } from 'react-router-dom';
-import { SlidersHorizontal, X, Search } from 'lucide-react';
+import { Link } from 'react-router';
+import { SlidersHorizontal, X, Search, RectangleVertical, RectangleHorizontal, Square } from 'lucide-react';
 import { unsplashService, UnsplashImage } from '../services/unsplashService';
+import { unsplashSearchesService } from '../lib/supabaseDataService';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { imagePreloader } from '../services/imagePreloader';
 
 export const TablouriCanvasPage: React.FC = () => {
+  console.log('[TablouriCanvasPage] Component rendering');
   const { categories, subcategories, paintings } = useAdmin();
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [selectedStyle, setSelectedStyle] = useState<string>('all');
   const [selectedOrientation, setSelectedOrientation] = useState<string>('all');
   const [selectedColor, setSelectedColor] = useState<string>('all');
-  const [sortBy, setSortBy] = useState<string>('featured');
   const [showMobileFilters, setShowMobileFilters] = useState(false);
   
   // Unsplash integration
@@ -67,26 +66,9 @@ export const TablouriCanvasPage: React.FC = () => {
         return;
       }
       
-      // Fallback: If preload failed, fetch normally
-      const settingsResponse = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/unsplash/settings`,
-        {
-          headers: {
-            Authorization: `Bearer ${publicAnonKey}`,
-          },
-        }
-      );
-      
-      let curatedQueries = ['nature', 'abstract', 'architecture', 'minimal', 'landscape'];
-      let imageCount = 24;
-      
-      if (settingsResponse.ok) {
-        const data = await settingsResponse.json();
-        if (data.settings) {
-          curatedQueries = data.settings.curatedQueries || curatedQueries;
-          imageCount = data.settings.randomImageCount || imageCount;
-        }
-      }
+      // Use hardcoded settings (no more Supabase calls)
+      const curatedQueries = ['nature', 'abstract', 'architecture', 'minimal', 'landscape'];
+      const imageCount = 24;
       
       // Shuffle queries to get variety
       const shuffledQueries = [...curatedQueries].sort(() => Math.random() - 0.5);
@@ -169,11 +151,36 @@ export const TablouriCanvasPage: React.FC = () => {
     try {
       setIsLoadingUnsplash(true);
       setUnsplashError(null);
-      const result = await unsplashService.searchPhotos(query, 1, 20);
+      
+      // Build filter options from active filters
+      const options: any = {};
+      
+      // Apply orientation filter if set
+      if (selectedOrientation !== 'all') {
+        options.orientation = unsplashService.mapOrientationToUnsplashParam(selectedOrientation);
+      }
+      
+      // Apply color filter if set
+      if (selectedColor !== 'all') {
+        options.color = unsplashService.mapColorToUnsplashParam(selectedColor);
+      }
+      
+      // Use the API filters for better results
+      const result = await unsplashService.searchPhotos(query, 1, 20, options);
       setUnsplashImages(result.results);
       setShowUnsplashResults(true);
       setUnsplashPage(1);
       setHasMoreUnsplash(result.total_pages > 1);
+      
+      // Track search to Supabase database (async, non-blocking)
+      unsplashSearchesService.record(
+        query.trim(),
+        result.results.slice(0, 10),
+        result.total
+      ).catch(error => {
+        // Silent fail - don't interrupt user experience
+        console.log('Search tracking skipped:', error);
+      });
     } catch (error) {
       console.error('Error searching Unsplash:', error);
       setUnsplashError('Eroare la căutarea imaginilor. Vă rugăm încercați din nou mai târziu.');
@@ -185,27 +192,6 @@ export const TablouriCanvasPage: React.FC = () => {
   const handleUnsplashSearch = (e: React.FormEvent) => {
     e.preventDefault();
     searchUnsplash(unsplashQuery);
-    
-    // Track the search
-    if (unsplashQuery.trim()) {
-      trackUnsplashSearch(unsplashQuery.trim());
-    }
-  };
-  
-  const trackUnsplashSearch = async (query: string) => {
-    try {
-      await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/unsplash/track-search`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${publicAnonKey}`
-        },
-        body: JSON.stringify({ query })
-      });
-    } catch (error) {
-      // Silent fail - tracking is not critical
-      console.log('Search tracking failed (non-critical):', error);
-    }
   };
 
   const loadMoreUnsplash = async () => {
@@ -221,8 +207,21 @@ export const TablouriCanvasPage: React.FC = () => {
       let hasMore = false;
       
       if (unsplashQuery.trim()) {
-        // Searching
-        const result = await unsplashService.searchPhotos(unsplashQuery, nextPage, 20);
+        // Build filter options from active filters
+        const options: any = {};
+        
+        // Apply orientation filter if set
+        if (selectedOrientation !== 'all') {
+          options.orientation = unsplashService.mapOrientationToUnsplashParam(selectedOrientation);
+        }
+        
+        // Apply color filter if set
+        if (selectedColor !== 'all') {
+          options.color = unsplashService.mapColorToUnsplashParam(selectedColor);
+        }
+        
+        // Searching with filters
+        const result = await unsplashService.searchPhotos(unsplashQuery, nextPage, 20, options);
         newImages = result.results;
         hasMore = result.total_pages > nextPage;
       } else {
@@ -251,14 +250,6 @@ export const TablouriCanvasPage: React.FC = () => {
   // Filter paintings
   let filteredPaintings = paintings.filter(p => p.isActive);
   
-  if (selectedCategory !== 'all') {
-    filteredPaintings = filteredPaintings.filter(p => p.category === selectedCategory);
-  }
-  
-  if (selectedStyle !== 'all') {
-    filteredPaintings = filteredPaintings.filter(p => p.subcategory === selectedStyle);
-  }
-
   if (selectedOrientation !== 'all') {
     filteredPaintings = filteredPaintings.filter(p => p.orientation === selectedOrientation);
   }
@@ -271,31 +262,19 @@ export const TablouriCanvasPage: React.FC = () => {
     });
   }
 
-  // Sort paintings
+  // Sort paintings - bestsellers first
   const sortedPaintings = [...filteredPaintings].sort((a, b) => {
-    switch (sortBy) {
-      case 'price-asc':
-        return a.price - b.price;
-      case 'price-desc':
-        return b.price - a.price;
-      case 'name':
-        return a.title.localeCompare(b.title);
-      default:
-        // Featured: bestsellers first, then by creation date
-        if (a.isBestseller && !b.isBestseller) return -1;
-        if (!a.isBestseller && b.isBestseller) return 1;
-        return 0;
-    }
+    if (a.isBestseller && !b.isBestseller) return -1;
+    if (!a.isBestseller && b.isBestseller) return 1;
+    return 0;
   });
   
   // Check if any filters are active
-  const hasActiveFilters = selectedCategory !== 'all' || selectedStyle !== 'all' || selectedOrientation !== 'all' || selectedColor !== 'all';
+  const hasActiveFilters = selectedOrientation !== 'all' || selectedColor !== 'all';
   
   // Filter Unsplash images based on current filters
   const filteredRandomUnsplashImages = hasActiveFilters 
     ? unsplashService.filterImages(randomUnsplashImages, {
-        category: selectedCategory,
-        style: selectedStyle,
         orientation: selectedOrientation,
         color: selectedColor
       })
@@ -303,8 +282,6 @@ export const TablouriCanvasPage: React.FC = () => {
   
   const filteredSearchUnsplashImages = hasActiveFilters
     ? unsplashService.filterImages(unsplashImages, {
-        category: selectedCategory,
-        style: selectedStyle,
         orientation: selectedOrientation,
         color: selectedColor
       })
@@ -326,135 +303,120 @@ export const TablouriCanvasPage: React.FC = () => {
             {/* Filter Panel - Desktop Only */}
             <aside className="hidden lg:block w-64 flex-shrink-0">
               <div className="sticky top-24 space-y-6">
-                {/* Sort Dropdown */}
-                <div className="mb-6">
-                  <label className="block text-gray-900 mb-3">Sort by</label>
-                  <select
-                    value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#86C2FF]/20"
-                  >
-                    <option value="featured">Featured</option>
-                    <option value="price-asc">Price: Low to High</option>
-                    <option value="price-desc">Price: High to Low</option>
-                    <option value="name">Name: A-Z</option>
-                  </select>
+                {/* Unsplash Search Bar */}
+                <div className="bg-gradient-to-r from-gray-50 to-gray-100 p-4 rounded-lg border border-gray-200">
+                  <h3 className="text-gray-900 mb-3 text-sm font-medium">Caută Imagini</h3>
+                  <form onSubmit={handleUnsplashSearch} className="space-y-2">
+                    <input
+                      type="text"
+                      value={unsplashQuery}
+                      onChange={(e) => setUnsplashQuery(e.target.value)}
+                      placeholder="Peisaje, abstract, natura..."
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#86C2FF] text-sm"
+                    />
+                    <div className="flex gap-2">
+                      {showUnsplashResults && unsplashQuery ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowUnsplashResults(false);
+                            setUnsplashQuery('');
+                            setUnsplashImages([]);
+                            setUnsplashPage(1);
+                          }}
+                          className="flex-1 px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm flex items-center justify-center gap-1"
+                        >
+                          <X className="w-4 h-4" />
+                          <span>Șterge</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="submit"
+                          className="flex-1 px-3 py-2 bg-[#7B93FF] text-white rounded-lg hover:bg-[#6A82EE] transition-colors text-sm flex items-center justify-center gap-1"
+                        >
+                          <Search className="w-4 h-4" />
+                          <span>Caută</span>
+                        </button>
+                      )}
+                    </div>
+                  </form>
                 </div>
+
+                <div className="h-px bg-gray-200"></div>
 
                 {/* Clear Filters Button - Only show when filters are active */}
                 {hasActiveFilters && (
-                  <button
-                    onClick={() => {
-                      setSelectedCategory('all');
-                      setSelectedStyle('all');
-                      setSelectedOrientation('all');
-                      setSelectedColor('all');
-                      window.scrollTo({ top: 0, behavior: 'smooth' });
-                    }}
-                    className="w-full px-4 py-2.5 bg-[#7B93FF] text-white rounded-lg hover:bg-[#6A82EE] transition-colors text-sm font-medium shadow-sm"
-                  >
-                    Clear All Filters
-                  </button>
+                  <>
+                    <button
+                      onClick={() => {
+                        setSelectedOrientation('all');
+                        setSelectedColor('all');
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }}
+                      className="w-full px-4 py-2.5 bg-[#7B93FF] text-white rounded-lg hover:bg-[#6A82EE] transition-colors text-sm font-medium shadow-sm"
+                    >
+                      Clear All Filters
+                    </button>
+                    <div className="h-px bg-gray-200"></div>
+                  </>
                 )}
 
-                <div className="h-px bg-gray-200 mb-6"></div>
-
-                {/* Category Filter */}
+                {/* Orientation Filter - with icons */}
                 <div className="mb-6">
-                  <h3 className="text-gray-900 mb-3">Category</h3>
-                  <div className="space-y-2">
-                    <label className="flex items-center gap-2 cursor-pointer group">
-                      <input
-                        type="radio"
-                        name="category"
-                        checked={selectedCategory === 'all'}
-                        onChange={() => setSelectedCategory('all')}
-                        className="w-4 h-4 text-[#86C2FF] focus:ring-[#86C2FF]"
-                      />
-                      <span className="text-sm text-gray-700 group-hover:text-gray-900">All Categories</span>
-                    </label>
-                    {categories.map((cat) => (
-                      <label key={cat.id} className="flex items-center gap-2 cursor-pointer group">
-                        <input
-                          type="radio"
-                          name="category"
-                          checked={selectedCategory === cat.name}
-                          onChange={() => setSelectedCategory(cat.name)}
-                          className="w-4 h-4 text-[#86C2FF] focus:ring-[#86C2FF]"
-                        />
-                        <span className="text-sm text-gray-700 group-hover:text-gray-900">{cat.name}</span>
-                      </label>
-                    ))}
+                  <h3 className="text-gray-900 mb-3">Orientare</h3>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      onClick={() => setSelectedOrientation('all')}
+                      className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all ${
+                        selectedOrientation === 'all'
+                          ? 'border-[#86C2FF] bg-[#86C2FF]/10'
+                          : 'border-gray-200 hover:border-gray-400'
+                      }`}
+                    >
+                      <SlidersHorizontal className="w-5 h-5 text-gray-700" />
+                      <span className="text-xs text-gray-700">Toate</span>
+                    </button>
+                    <button
+                      onClick={() => setSelectedOrientation('portrait')}
+                      className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all ${
+                        selectedOrientation === 'portrait'
+                          ? 'border-[#86C2FF] bg-[#86C2FF]/10'
+                          : 'border-gray-200 hover:border-gray-400'
+                      }`}
+                    >
+                      <RectangleVertical className="w-5 h-5 text-gray-700" />
+                      <span className="text-xs text-gray-700">Portret</span>
+                    </button>
+                    <button
+                      onClick={() => setSelectedOrientation('landscape')}
+                      className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all ${
+                        selectedOrientation === 'landscape'
+                          ? 'border-[#86C2FF] bg-[#86C2FF]/10'
+                          : 'border-gray-200 hover:border-gray-400'
+                      }`}
+                    >
+                      <RectangleHorizontal className="w-5 h-5 text-gray-700" />
+                      <span className="text-xs text-gray-700">Landscape</span>
+                    </button>
                   </div>
-                </div>
-
-                <div className="h-px bg-gray-200 mb-6"></div>
-
-                {/* Stil Filter */}
-                <div className="mb-6">
-                  <h3 className="text-gray-900 mb-3">Stil</h3>
-                  <div className="space-y-2">
-                    <label className="flex items-center gap-2 cursor-pointer group">
-                      <input
-                        type="radio"
-                        name="style"
-                        checked={selectedStyle === 'all'}
-                        onChange={() => setSelectedStyle('all')}
-                        className="w-4 h-4 text-[#86C2FF] focus:ring-[#86C2FF]"
-                      />
-                      <span className="text-sm text-gray-700 group-hover:text-gray-900">Toate Stilurile</span>
-                    </label>
-                    {subcategories.map((sub) => (
-                      <label key={sub.id} className="flex items-center gap-2 cursor-pointer group">
-                        <input
-                          type="radio"
-                          name="style"
-                          checked={selectedStyle === sub.name}
-                          onChange={() => setSelectedStyle(sub.name)}
-                          className="w-4 h-4 text-[#86C2FF] focus:ring-[#86C2FF]"
-                        />
-                        <span className="text-sm text-gray-700 group-hover:text-gray-900">{sub.name}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="h-px bg-gray-200 mb-6"></div>
-
-                {/* Orientation Filter */}
-                <div className="mb-6">
-                  <h3 className="text-gray-900 mb-3">Orientation</h3>
-                  <div className="space-y-2">
-                    <label className="flex items-center gap-2 cursor-pointer group">
-                      <input
-                        type="radio"
-                        name="orientation"
-                        checked={selectedOrientation === 'all'}
-                        onChange={() => setSelectedOrientation('all')}
-                        className="w-4 h-4 text-[#86C2FF] focus:ring-[#86C2FF]"
-                      />
-                      <span className="text-sm text-gray-700 group-hover:text-gray-900">All Orientations</span>
-                    </label>
-                    {['portrait', 'landscape', 'square'].map((orientation) => (
-                      <label key={orientation} className="flex items-center gap-2 cursor-pointer group">
-                        <input
-                          type="radio"
-                          name="orientation"
-                          checked={selectedOrientation === orientation}
-                          onChange={() => setSelectedOrientation(orientation)}
-                          className="w-4 h-4 text-[#86C2FF] focus:ring-[#86C2FF]"
-                        />
-                        <span className="text-sm text-gray-700 group-hover:text-gray-900 capitalize">{orientation}</span>
-                      </label>
-                    ))}
-                  </div>
+                  <button
+                    onClick={() => setSelectedOrientation('square')}
+                    className={`w-full flex items-center justify-center gap-2 p-3 rounded-lg border-2 transition-all mt-2 ${
+                      selectedOrientation === 'square'
+                        ? 'border-[#86C2FF] bg-[#86C2FF]/10'
+                        : 'border-gray-200 hover:border-gray-400'
+                    }`}
+                  >
+                    <Square className="w-5 h-5 text-gray-700" />
+                    <span className="text-xs text-gray-700">Pătrat</span>
+                  </button>
                 </div>
 
                 <div className="h-px bg-gray-200 mb-6"></div>
 
                 {/* Color Filter */}
                 <div className="mb-6">
-                  <h3 className="text-gray-900 mb-3">Color</h3>
+                  <h3 className="text-gray-900 mb-3">Culoare</h3>
                   <div className="space-y-3">
                     <label className="flex items-center gap-2 cursor-pointer group">
                       <input
@@ -464,7 +426,7 @@ export const TablouriCanvasPage: React.FC = () => {
                         onChange={() => setSelectedColor('all')}
                         className="w-4 h-4 text-[#86C2FF] focus:ring-[#86C2FF]"
                       />
-                      <span className="text-sm text-gray-700 group-hover:text-gray-900">All Colors</span>
+                      <span className="text-sm text-gray-700 group-hover:text-gray-900">Toate Culorile</span>
                     </label>
                     <div className="grid grid-cols-6 gap-2">
                       {[
@@ -497,75 +459,40 @@ export const TablouriCanvasPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="h-px bg-gray-200 mb-6"></div>
+                {hasActiveFilters && (
+                  <>
+                    <div className="h-px bg-gray-200 mb-6"></div>
 
-                {/* Clear Filters */}
-                <button
-                  onClick={() => {
-                    setSelectedCategory('all');
-                    setSelectedStyle('all');
-                    setSelectedOrientation('all');
-                    setSelectedColor('all');
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
-                  }}
-                  className="w-full px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-xs"
-                >
-                  Clear Filters
-                </button>
+                    {/* Clear Filters */}
+                    <button
+                      onClick={() => {
+                        setSelectedOrientation('all');
+                        setSelectedColor('all');
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }}
+                      className="w-full px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-xs"
+                    >
+                      Clear Filters
+                    </button>
+                  </>
+                )}
               </div>
             </aside>
 
             {/* Paintings Grid - Right Side */}
             <div className="flex-1">
-              {/* Unsplash Search Bar + Filter - Compact Mobile Design */}
-              <div className="mb-6 md:mb-8 bg-gradient-to-r from-gray-50 to-gray-100 p-4 md:p-6 rounded-lg border border-gray-200">
-                {/* Mobile: Show items count + Filter button row */}
-                <div className="lg:hidden flex items-center justify-between mb-3">
-                  <p className="text-gray-600 text-sm">
-                    {sortedPaintings.length} {sortedPaintings.length === 1 ? 'tablou găsit' : 'tablouri găsite'}
-                  </p>
-                  <button
-                    onClick={() => setShowMobileFilters(true)}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
-                  >
-                    <SlidersHorizontal className="w-4 h-4" />
-                    <span>Filtre</span>
-                  </button>
-                </div>
-                
-                <h2 className="text-xl md:text-2xl text-gray-900 mb-3 md:mb-4">Caută Imagini</h2>
-                <form onSubmit={handleUnsplashSearch} className="flex gap-2">
-                  <input
-                    type="text"
-                    value={unsplashQuery}
-                    onChange={(e) => setUnsplashQuery(e.target.value)}
-                    placeholder="Peisaje, abstract, natura"
-                    className="flex-1 px-4 py-2 md:py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#86C2FF] text-sm md:text-base"
-                  />
-                  {showUnsplashResults && unsplashQuery ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowUnsplashResults(false);
-                        setUnsplashQuery('');
-                        setUnsplashImages([]);
-                        setUnsplashPage(1);
-                      }}
-                      className="px-4 md:px-6 py-2 md:py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors flex items-center gap-2"
-                    >
-                      <X className="w-4 h-4" />
-                      <span className="hidden sm:inline">Șterge</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="submit"
-                      className="px-4 md:px-6 py-2 md:py-3 bg-[#7B93FF] text-white rounded-lg hover:bg-[#6A82EE] transition-colors flex items-center gap-2"
-                    >
-                      <Search className="w-4 h-4" />
-                      <span className="hidden sm:inline">Caută</span>
-                    </button>
-                  )}
-                </form>
+              {/* Mobile: Show Filter button */}
+              <div className="lg:hidden flex items-center justify-between mb-6">
+                <p className="text-gray-600 text-sm">
+                  {sortedPaintings.length} {sortedPaintings.length === 1 ? 'tablou găsit' : 'tablouri găsite'}
+                </p>
+                <button
+                  onClick={() => setShowMobileFilters(true)}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+                >
+                  <SlidersHorizontal className="w-4 h-4" />
+                  <span>Filtre</span>
+                </button>
               </div>
 
               {/* Unsplash Results Section */}
@@ -637,29 +564,34 @@ export const TablouriCanvasPage: React.FC = () => {
                     </div>
                   )}
                   
-                  {hasMoreUnsplash && (
-                    <div className="text-center mb-8">
+                  {/* Load More Button */}
+                  {!isLoadingUnsplash && !unsplashError && hasMoreUnsplash && filteredSearchUnsplashImages.length > 0 && (
+                    <div className="text-center">
                       <button
                         onClick={loadMoreUnsplash}
-                        className="px-6 py-2 bg-[#7B93FF] text-white rounded-lg hover:bg-[#6A82EE] transition-colors"
+                        disabled={isLoadingMore}
+                        className="px-6 py-3 bg-[#7B93FF] text-white rounded-lg hover:bg-[#6A82EE] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        {isLoadingMore ? 'Loading...' : 'Load More'}
+                        {isLoadingMore ? 'Se încarcă...' : 'Încarcă Mai Multe'}
                       </button>
                     </div>
                   )}
                   
-                  <div className="h-px bg-gray-200 my-8"></div>
-                  <h2 className="text-xl text-gray-900 mb-6">Tablouri Canvas din Colecția Noastră</h2>
+                  {/* Separator - Show when there are database paintings to display */}
+                  {sortedPaintings.length > 0 && (
+                    <>
+                      <div className="h-px bg-gray-200 my-8"></div>
+                      <h2 className="text-xl text-gray-900 mb-6">Tablouri Canvas din Colecția Noastră</h2>
+                    </>
+                  )}
                 </div>
               )}
 
-              {sortedPaintings.length === 0 ? (
+              {sortedPaintings.length === 0 && filteredRandomUnsplashImages.length === 0 && !showUnsplashResults && !isLoadingRandom ? (
                 <div className="sticky top-24 bg-white rounded-lg border border-gray-200 shadow-sm p-8 text-center">
                   <p className="text-gray-500 text-lg mb-4">Nu există tablouri pentru filtrele selectate</p>
                   <button
                     onClick={() => {
-                      setSelectedCategory('all');
-                      setSelectedStyle('all');
                       setSelectedOrientation('all');
                       setSelectedColor('all');
                       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -671,8 +603,8 @@ export const TablouriCanvasPage: React.FC = () => {
                 </div>
               ) : (
                 <>
-                  {/* Random Unsplash Images Section - show when no filters are active OR when filters match */}
-                  {randomUnsplashImages.length > 0 && filteredRandomUnsplashImages.length > 0 && (
+                  {/* Random Unsplash Images Section - show when no search is active AND (no filters OR when filters match) */}
+                  {!showUnsplashResults && randomUnsplashImages.length > 0 && filteredRandomUnsplashImages.length > 0 && (
                     <div className="mb-8 md:mb-12">
                       <div className="flex items-center justify-between mb-4 md:mb-6">
                         <h2 className="text-xl md:text-2xl text-gray-900">
@@ -725,67 +657,78 @@ export const TablouriCanvasPage: React.FC = () => {
                         </div>
                       )}
                       
-                      <div className="h-px bg-gray-200 my-8"></div>
+                      {/* Only show separator if there are database paintings to show */}
+                      {sortedPaintings.length > 0 && (
+                        <>
+                          <div className="h-px bg-gray-200 my-8"></div>
+                          <h2 className="text-xl text-gray-900 mb-6">Tablouri Canvas din Colecția Noastră</h2>
+                        </>
+                      )}
                     </div>
                   )}
                   
-                  <div className="hidden lg:block mb-6 text-gray-600">
-                    {sortedPaintings.length} {sortedPaintings.length === 1 ? 'tablou găsit' : 'tablouri găsite'}
-                  </div>
-                  
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
-                    {sortedPaintings.map((painting) => {
-                      const finalPrice = painting.price * (1 - painting.discount / 100);
+                  {/* Database paintings section - only show if there are paintings */}
+                  {sortedPaintings.length > 0 && (
+                    <>
+                      <div className="hidden lg:block mb-6 text-gray-600">
+                        {sortedPaintings.length} {sortedPaintings.length === 1 ? 'tablou găsit' : 'tablouri găsite'}
+                      </div>
                       
-                      return (
-                        <Link 
-                          key={painting.id} 
-                          to={`/produs/${painting.id}`}
-                          className="group"
-                        >
-                          <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden mb-3 relative">
-                            <img
-                              src={painting.imageUrls?.medium || painting.image}
-                              alt={painting.title}
-                              loading="lazy"
-                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                            />
-                            {painting.isBestseller && (
-                              <span className="absolute top-2 right-2 px-2 py-1 bg-yellow-400 text-yellow-900 text-xs rounded shadow-md">
-                                Bestseller
-                              </span>
-                            )}
-                            {painting.discount > 0 && (
-                              <span className="absolute top-2 left-2 px-2 py-1 bg-red-500 text-white text-xs rounded shadow-md">
-                                -{painting.discount}%
-                              </span>
-                            )}
-                          </div>
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
+                        {sortedPaintings.map((painting) => {
+                          const finalPrice = painting.price * (1 - painting.discount / 100);
                           
-                          <h3 className="text-gray-900 group-hover:text-[#86C2FF] transition-colors line-clamp-2 mb-1 text-sm sm:text-base">
-                            {painting.title}
-                          </h3>
+                          return (
+                            <Link 
+                              key={painting.id} 
+                              to={`/produs/${painting.id}`}
+                              className="group"
+                            >
+                              <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden mb-3 relative">
+                                <img
+                                  src={painting.imageUrls?.medium || painting.image}
+                                  alt={painting.title}
+                                  loading="lazy"
+                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                />
+                                {painting.isBestseller && (
+                                  <span className="absolute top-2 right-2 px-2 py-1 bg-yellow-400 text-yellow-900 text-xs rounded shadow-md">
+                                    Bestseller
+                                  </span>
+                                )}
+                                {painting.discount > 0 && (
+                                  <span className="absolute top-2 left-2 px-2 py-1 bg-red-500 text-white text-xs rounded shadow-md">
+                                    -{painting.discount}%
+                                  </span>
+                                )}
+                              </div>
+                              
+                              <h3 className="text-gray-900 group-hover:text-[#86C2FF] transition-colors line-clamp-2 mb-1 text-sm sm:text-base">
+                                {painting.title}
+                              </h3>
 
-                          <div className="flex items-baseline gap-2 text-sm sm:text-base">
-                            {painting.discount > 0 ? (
-                              <>
-                                <span className="text-gray-900">
-                                  {finalPrice.toFixed(2)} RON
-                                </span>
-                                <span className="text-xs sm:text-sm text-gray-400 line-through">
-                                  {painting.price.toFixed(2)} RON
-                                </span>
-                              </>
-                            ) : (
-                              <span className="text-gray-900">
-                                {painting.price.toFixed(2)} RON
-                              </span>
-                            )}
-                          </div>
-                        </Link>
-                      );
-                    })}
-                  </div>
+                              <div className="flex items-baseline gap-2 text-sm sm:text-base">
+                                {painting.discount > 0 ? (
+                                  <>
+                                    <span className="text-gray-900">
+                                      {finalPrice.toFixed(2)} RON
+                                    </span>
+                                    <span className="text-xs sm:text-sm text-gray-400 line-through">
+                                      {painting.price.toFixed(2)} RON
+                                    </span>
+                                  </>
+                                ) : (
+                                  <span className="text-gray-900">
+                                    {painting.price.toFixed(2)} RON
+                                  </span>
+                                )}
+                              </div>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
                 </>
               )}
             </div>
@@ -814,119 +757,62 @@ export const TablouriCanvasPage: React.FC = () => {
             {/* Scrollable Filter Content */}
             <div className="overflow-y-auto flex-1 p-4">
               <div className="space-y-6">
-                {/* Sort Dropdown */}
+                {/* Orientation Filter - with icons */}
                 <div>
-                  <label className="block text-gray-900 mb-3">Sort by</label>
-                  <select
-                    value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#86C2FF]/20"
+                  <h3 className="text-gray-900 mb-3">Orientare</h3>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      onClick={() => setSelectedOrientation('all')}
+                      className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all ${
+                        selectedOrientation === 'all'
+                          ? 'border-[#86C2FF] bg-[#86C2FF]/10'
+                          : 'border-gray-200 hover:border-gray-400'
+                      }`}
+                    >
+                      <SlidersHorizontal className="w-5 h-5 text-gray-700" />
+                      <span className="text-xs text-gray-700">Toate</span>
+                    </button>
+                    <button
+                      onClick={() => setSelectedOrientation('portrait')}
+                      className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all ${
+                        selectedOrientation === 'portrait'
+                          ? 'border-[#86C2FF] bg-[#86C2FF]/10'
+                          : 'border-gray-200 hover:border-gray-400'
+                      }`}
+                    >
+                      <RectangleVertical className="w-5 h-5 text-gray-700" />
+                      <span className="text-xs text-gray-700">Portret</span>
+                    </button>
+                    <button
+                      onClick={() => setSelectedOrientation('landscape')}
+                      className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all ${
+                        selectedOrientation === 'landscape'
+                          ? 'border-[#86C2FF] bg-[#86C2FF]/10'
+                          : 'border-gray-200 hover:border-gray-400'
+                      }`}
+                    >
+                      <RectangleHorizontal className="w-5 h-5 text-gray-700" />
+                      <span className="text-xs text-gray-700">Landscape</span>
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => setSelectedOrientation('square')}
+                    className={`w-full flex items-center justify-center gap-2 p-3 rounded-lg border-2 transition-all mt-2 ${
+                      selectedOrientation === 'square'
+                        ? 'border-[#86C2FF] bg-[#86C2FF]/10'
+                        : 'border-gray-200 hover:border-gray-400'
+                    }`}
                   >
-                    <option value="featured">Featured</option>
-                    <option value="price-asc">Price: Low to High</option>
-                    <option value="price-desc">Price: High to Low</option>
-                    <option value="name">Name: A-Z</option>
-                  </select>
-                </div>
-
-                <div className="h-px bg-gray-200"></div>
-
-                {/* Category Filter */}
-                <div>
-                  <h3 className="text-gray-900 mb-3">Category</h3>
-                  <div className="space-y-2">
-                    <label className="flex items-center gap-2 cursor-pointer group">
-                      <input
-                        type="radio"
-                        name="category-mobile"
-                        checked={selectedCategory === 'all'}
-                        onChange={() => setSelectedCategory('all')}
-                        className="w-4 h-4 text-[#86C2FF] focus:ring-[#86C2FF]"
-                      />
-                      <span className="text-sm text-gray-700 group-hover:text-gray-900">All Categories</span>
-                    </label>
-                    {categories.map((cat) => (
-                      <label key={cat.id} className="flex items-center gap-2 cursor-pointer group">
-                        <input
-                          type="radio"
-                          name="category-mobile"
-                          checked={selectedCategory === cat.name}
-                          onChange={() => setSelectedCategory(cat.name)}
-                          className="w-4 h-4 text-[#86C2FF] focus:ring-[#86C2FF]"
-                        />
-                        <span className="text-sm text-gray-700 group-hover:text-gray-900">{cat.name}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="h-px bg-gray-200"></div>
-
-                {/* Stil Filter */}
-                <div>
-                  <h3 className="text-gray-900 mb-3">Stil</h3>
-                  <div className="space-y-2">
-                    <label className="flex items-center gap-2 cursor-pointer group">
-                      <input
-                        type="radio"
-                        name="style-mobile"
-                        checked={selectedStyle === 'all'}
-                        onChange={() => setSelectedStyle('all')}
-                        className="w-4 h-4 text-[#86C2FF] focus:ring-[#86C2FF]"
-                      />
-                      <span className="text-sm text-gray-700 group-hover:text-gray-900">Toate Stilurile</span>
-                    </label>
-                    {subcategories.map((sub) => (
-                      <label key={sub.id} className="flex items-center gap-2 cursor-pointer group">
-                        <input
-                          type="radio"
-                          name="style-mobile"
-                          checked={selectedStyle === sub.name}
-                          onChange={() => setSelectedStyle(sub.name)}
-                          className="w-4 h-4 text-[#86C2FF] focus:ring-[#86C2FF]"
-                        />
-                        <span className="text-sm text-gray-700 group-hover:text-gray-900">{sub.name}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="h-px bg-gray-200"></div>
-
-                {/* Orientation Filter */}
-                <div>
-                  <h3 className="text-gray-900 mb-3">Orientation</h3>
-                  <div className="space-y-2">
-                    <label className="flex items-center gap-2 cursor-pointer group">
-                      <input
-                        type="radio"
-                        name="orientation-mobile"
-                        checked={selectedOrientation === 'all'}
-                        onChange={() => setSelectedOrientation('all')}
-                        className="w-4 h-4 text-[#86C2FF] focus:ring-[#86C2FF]"
-                      />
-                      <span className="text-sm text-gray-700 group-hover:text-gray-900">All Orientations</span>
-                    </label>
-                    {['portrait', 'landscape', 'square'].map((orientation) => (
-                      <label key={orientation} className="flex items-center gap-2 cursor-pointer group">
-                        <input
-                          type="radio"
-                          name="orientation-mobile"
-                          checked={selectedOrientation === orientation}
-                          onChange={() => setSelectedOrientation(orientation)}
-                          className="w-4 h-4 text-[#86C2FF] focus:ring-[#86C2FF]"
-                        />
-                        <span className="text-sm text-gray-700 group-hover:text-gray-900 capitalize">{orientation}</span>
-                      </label>
-                    ))}
-                  </div>
+                    <Square className="w-5 h-5 text-gray-700" />
+                    <span className="text-xs text-gray-700">Pătrat</span>
+                  </button>
                 </div>
 
                 <div className="h-px bg-gray-200"></div>
 
                 {/* Color Filter */}
                 <div>
-                  <h3 className="text-gray-900 mb-3">Color</h3>
+                  <h3 className="text-gray-900 mb-3">Culoare</h3>
                   <div className="space-y-3">
                     <label className="flex items-center gap-2 cursor-pointer group">
                       <input
@@ -936,7 +822,7 @@ export const TablouriCanvasPage: React.FC = () => {
                         onChange={() => setSelectedColor('all')}
                         className="w-4 h-4 text-[#86C2FF] focus:ring-[#86C2FF]"
                       />
-                      <span className="text-sm text-gray-700 group-hover:text-gray-900">All Colors</span>
+                      <span className="text-sm text-gray-700 group-hover:text-gray-900">Toate Culorile</span>
                     </label>
                     <div className="grid grid-cols-6 gap-2">
                       {[
@@ -975,8 +861,6 @@ export const TablouriCanvasPage: React.FC = () => {
             <div className="border-t border-gray-200 p-4 flex-shrink-0 space-y-2">
               <button
                 onClick={() => {
-                  setSelectedCategory('all');
-                  setSelectedStyle('all');
                   setSelectedOrientation('all');
                   setSelectedColor('all');
                 }}

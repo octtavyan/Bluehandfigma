@@ -1,5 +1,5 @@
 import React, { useState, useEffect as useReactEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router';
 import { Check, ArrowLeft, ExternalLink, Image, FileText } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { useAdmin } from '../context/AdminContext';

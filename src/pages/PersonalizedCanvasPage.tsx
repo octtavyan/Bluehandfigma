@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { Upload, X, ChevronLeft, ChevronRight, ShoppingCart, Check, ZoomIn, ZoomOut, RotateCw, Move, Loader2, User, MapPin, Package, CreditCard, ArrowRight, Star } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { useSizes } from '../hooks/useSizes';
@@ -7,6 +7,7 @@ import { useAdmin } from '../context/AdminContext';
 import { PersonalizationData } from '../types';
 import { toast } from 'sonner';
 import { uploadPersonalizedImages } from '../utils/imageUpload';
+import { cloudinaryService } from '../services/cloudinaryService';
 
 type Step = 'upload-photo' | 'configure';
 
@@ -129,42 +130,70 @@ export const PersonalizedCanvasPage: React.FC = () => {
 
     setIsUploading(true);
     
-    const uploadPromises: Promise<void>[] = [];
-    
-    for (const file of Array.from(files)) {
-      const uploadPromise = new Promise<void>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-          if (e.target?.result) {
-            const fullImage = e.target.result as string;
-            const previewImage = await createPreviewImage(fullImage);
-            const optimizedOriginal = await createOptimizedOriginal(fullImage);
+    try {
+      // Check if Cloudinary is configured
+      const isConfigured = await cloudinaryService.isConfigured();
+      
+      if (!isConfigured) {
+        toast.error('Cloudinary nu este configurat. Contactează administratorul.');
+        setIsUploading(false);
+        return;
+      }
+
+      const uploadPromises: Promise<void>[] = [];
+      
+      for (const file of Array.from(files)) {
+        const uploadPromise = (async () => {
+          try {
+            // Upload directly to Cloudinary
+            const cloudinaryUrl = await cloudinaryService.uploadImage(file, 'personalized-orders');
             
-            setUploadedImages(prev => [...prev, optimizedOriginal]);
+            // Create preview for display
+            const reader = new FileReader();
+            const previewPromise = new Promise<string>((resolve) => {
+              reader.onload = async (e) => {
+                if (e.target?.result) {
+                  const previewImage = await createPreviewImage(e.target.result as string);
+                  resolve(previewImage);
+                }
+              };
+              reader.readAsDataURL(file);
+            });
+            
+            const previewImage = await previewPromise;
+            
+            // Use Cloudinary URL as the main image
+            setUploadedImages(prev => [...prev, cloudinaryUrl]);
             setPreviewImages(prev => [...prev, previewImage]);
-            resolve();
+          } catch (error) {
+            console.error('Upload error:', error);
+            toast.error(`Eroare la încărcarea imaginii: ${file.name}`);
           }
-        };
-        reader.readAsDataURL(file);
+        })();
+        
+        uploadPromises.push(uploadPromise);
+      }
+      
+      await Promise.all(uploadPromises);
+      
+      // Show success toast and move to configure step
+      toast.success('Calitate Verificată!', {
+        description: 'Fotografiile au fost încărcate cu succes pe Cloudinary și sunt excelente pentru imprimare.',
+        duration: 3000,
       });
       
-      uploadPromises.push(uploadPromise);
+      // Auto-transition to configure step after a short delay
+      setTimeout(() => {
+        setCurrentStep('configure');
+        setCurrentImageIndex(0);
+      }, 1000);
+      
+    } catch (error) {
+      console.error('Upload error:', error);
+      toast.error('Eroare la încărcarea imaginilor');
+    } finally {
+      setIsUploading(false);
     }
-    
-    await Promise.all(uploadPromises);
-    setIsUploading(false);
-    
-    // Show success toast and move to configure step
-    toast.success('Calitate Verificată!', {
-      description: 'Fotografiile au fost încărcate cu succes și sunt excelente pentru imprimare.',
-      duration: 3000,
-    });
-    
-    // Auto-transition to configure step after a short delay
-    setTimeout(() => {
-      setCurrentStep('configure');
-      setCurrentImageIndex(0);
-    }, 1000);
   };
 
   const handleDragOver = (e: React.DragEvent) => {

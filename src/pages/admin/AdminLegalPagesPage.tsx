@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { ArrowLeft, Save, FileText, Shield, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { AdminLayout } from '../../components/admin/AdminLayout';

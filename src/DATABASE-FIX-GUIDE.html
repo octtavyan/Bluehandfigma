@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🗃️ Database Fix Guide</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #11998e;
+            margin-bottom: 20px;
+            font-size: 2.5em;
+            text-align: center;
+        }
+        h2 {
+            color: #38ef7d;
+            margin: 30px 0 15px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #38ef7d;
+        }
+        .error-box {
+            background: #f8d7da;
+            border-left: 5px solid #dc3545;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        .success {
+            background: #d4edda;
+            border-left: 5px solid #28a745;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        .warning {
+            background: #fff3cd;
+            border-left: 5px solid #ffc107;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        .info {
+            background: #d1ecf1;
+            border-left: 5px solid #17a2b8;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        pre {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 15px 0;
+            font-size: 0.9em;
+        }
+        code {
+            background: #f4f4f4;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+        }
+        .step {
+            background: #e3f2fd;
+            padding: 25px;
+            margin: 20px 0;
+            border-radius: 8px;
+            border-left: 5px solid #2196F3;
+        }
+        .step-number {
+            display: inline-block;
+            width: 45px;
+            height: 45px;
+            background: #2196F3;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 45px;
+            margin-right: 15px;
+            font-weight: bold;
+            font-size: 1.5em;
+        }
+        ul {
+            margin: 15px 0;
+            padding-left: 30px;
+        }
+        li {
+            margin: 10px 0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #11998e;
+            color: white;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🗃️ Database Column Fix Guide</h1>
+        
+        <div class="error-box">
+            <h3>❌ Error You Got:</h3>
+            <code>#1054 - Unknown column 'sort_order' in 'INSERT INTO'</code>
+            <p style="margin-top: 15px;"><strong>Meaning:</strong> Your table structure is different than expected.</p>
+        </div>
+
+        <div class="info">
+            <h3>📋 What We Need To Do:</h3>
+            <ol>
+                <li><strong>Check</strong> what columns your tables actually have</li>
+                <li><strong>Insert data</strong> using only the columns that exist</li>
+                <li><strong>Skip</strong> the fancy columns like sort_order, active, etc.</li>
+            </ol>
+        </div>
+
+        <h2>🎯 Easy Fix - Follow These Steps:</h2>
+
+        <div class="step">
+            <span class="step-number">1</span>
+            <strong>Open phpMyAdmin</strong>
+            <ul style="margin-left: 65px; margin-top: 10px;">
+                <li>Login to cPanel</li>
+                <li>Click "phpMyAdmin"</li>
+                <li>Select database: <code>wiseguy_bluehand</code></li>
+            </ul>
+        </div>
+
+        <div class="step">
+            <span class="step-number">2</span>
+            <strong>Check What Tables You Have</strong>
+            <p style="margin-left: 65px; margin-top: 10px;">Click "SQL" tab and run this:</p>
+            <pre>SHOW TABLES;</pre>
+            <p style="margin-left: 65px;"><strong>Look for:</strong> categories, frame_types, sizes</p>
+        </div>
+
+        <div class="step">
+            <span class="step-number">3</span>
+            <strong>Check Table Structure</strong>
+            <p style="margin-left: 65px; margin-top: 10px;">Run this to see what columns exist:</p>
+            <pre>DESCRIBE categories;
+DESCRIBE frame_types;
+DESCRIBE sizes;</pre>
+            <p style="margin-left: 65px;"><strong>Screenshot this!</strong> (Or write down the column names)</p>
+        </div>
+
+        <div class="step">
+            <span class="step-number">4</span>
+            <strong>Insert Data (Simple Version)</strong>
+            <p style="margin-left: 65px; margin-top: 10px;">Run ONLY the INSERT for tables that are EMPTY:</p>
+            
+            <h4 style="margin-left: 65px; margin-top: 20px;">For Categories:</h4>
+            <pre>INSERT IGNORE INTO `categories` (`name`, `slug`) VALUES
+('Peisaje', 'peisaje'),
+('Abstract', 'abstract'),
+('Portrete', 'portrete'),
+('Animale', 'animale'),
+('Flori', 'flori'),
+('Arhitectură', 'arhitectura');</pre>
+
+            <h4 style="margin-left: 65px; margin-top: 20px;">For Frame Types:</h4>
+            <pre>INSERT IGNORE INTO `frame_types` (`name`, `slug`, `price_percentage`) VALUES
+('Fără Ramă', 'fara-rama', 0.00),
+('Ramă Neagră', 'rama-neagra', 25.00),
+('Ramă Albă', 'rama-alba', 25.00),
+('Ramă Naturală', 'rama-naturala', 30.00),
+('Ramă Premium', 'rama-premium', 50.00);</pre>
+
+            <h4 style="margin-left: 65px; margin-top: 20px;">For Sizes:</h4>
+            <pre>INSERT IGNORE INTO `sizes` (`name`, `width`, `height`, `base_price`) VALUES
+('20x30 cm', 20, 30, 89.00),
+('30x40 cm', 30, 40, 129.00),
+('40x60 cm', 40, 60, 179.00),
+('50x70 cm', 50, 70, 249.00),
+('60x90 cm', 60, 90, 349.00),
+('70x100 cm', 70, 100, 449.00),
+('90x120 cm', 90, 120, 599.00),
+('100x150 cm', 100, 150, 799.00);</pre>
+        </div>
+
+        <div class="step">
+            <span class="step-number">5</span>
+            <strong>Verify Data Was Inserted</strong>
+            <p style="margin-left: 65px; margin-top: 10px;">Run this to check:</p>
+            <pre>SELECT COUNT(*) as total FROM categories;
+SELECT COUNT(*) as total FROM frame_types;
+SELECT COUNT(*) as total FROM sizes;</pre>
+            <p style="margin-left: 65px;"><strong>Expected:</strong> 6 categories, 5 frame types, 8 sizes</p>
+        </div>
+
+        <h2>🚨 If You Get More Errors:</h2>
+
+        <div class="warning">
+            <h4>Error: "Unknown column 'price_percentage'"</h4>
+            <p><strong>Solution:</strong> Your frame_types table doesn't have that column. Use this instead:</p>
+            <pre>INSERT IGNORE INTO `frame_types` (`name`, `slug`) VALUES
+('Fără Ramă', 'fara-rama'),
+('Ramă Neagră', 'rama-neagra'),
+('Ramă Albă', 'rama-alba'),
+('Ramă Naturală', 'rama-naturala'),
+('Ramă Premium', 'rama-premium');</pre>
+        </div>
+
+        <div class="warning">
+            <h4>Error: "Unknown column 'base_price'"</h4>
+            <p><strong>Solution:</strong> Your sizes table might use 'price' instead of 'base_price'. Try:</p>
+            <pre>INSERT IGNORE INTO `sizes` (`name`, `width`, `height`, `price`) VALUES
+('20x30 cm', 20, 30, 89.00),
+('30x40 cm', 30, 40, 129.00),
+...;</pre>
+        </div>
+
+        <h2>📊 What Columns Do You Actually Have?</h2>
+
+        <div class="info">
+            <p><strong>IMPORTANT:</strong> After running DESCRIBE commands in Step 3, send me a screenshot showing:</p>
+            <ul>
+                <li>✅ All column names from <code>categories</code> table</li>
+                <li>✅ All column names from <code>frame_types</code> table</li>
+                <li>✅ All column names from <code>sizes</code> table</li>
+            </ul>
+            <p style="margin-top: 15px;">Then I can create the PERFECT INSERT statements for YOUR table structure!</p>
+        </div>
+
+        <h2>✅ Expected Results:</h2>
+
+        <div class="success">
+            <h3>After inserting data, these should work:</h3>
+            <ul>
+                <li>✅ <a href="https://bluehand.ro/api/categories" target="_blank">https://bluehand.ro/api/categories</a></li>
+                <li>✅ <a href="https://bluehand.ro/api/frame-types" target="_blank">https://bluehand.ro/api/frame-types</a></li>
+                <li>✅ <a href="https://bluehand.ro/api/sizes" target="_blank">https://bluehand.ro/api/sizes</a></li>
+            </ul>
+        </div>
+
+        <h2>📁 SQL Files I Created:</h2>
+
+        <table>
+            <tr>
+                <th>File</th>
+                <th>Purpose</th>
+            </tr>
+            <tr>
+                <td><code>/server-deploy/ULTRA-SIMPLE-FIX.sql</code></td>
+                <td>✅ Simplest version - use this one!</td>
+            </tr>
+            <tr>
+                <td><code>/server-deploy/SAFEST-DATABASE-FIX.sql</code></td>
+                <td>Adds missing columns if needed</td>
+            </tr>
+            <tr>
+                <td><code>/server-deploy/SIMPLE-FIX-DATABASE.sql</code></td>
+                <td>Creates tables from scratch</td>
+            </tr>
+        </table>
+
+        <hr style="margin: 40px 0; border: 2px solid #11998e;">
+
+        <div style="text-align: center; padding: 20px; background: #d1ecf1; border-radius: 8px;">
+            <h2 style="color: #17a2b8;">📸 Next Steps:</h2>
+            <p style="font-size: 1.2em; margin-top: 15px;">
+                1. Run <code>DESCRIBE categories;</code> in phpMyAdmin<br>
+                2. Screenshot the results<br>
+                3. Send me the screenshot so I can see your exact column names<br>
+                4. I'll create custom INSERT statements that match YOUR table!
+            </p>
+        </div>
+    </div>
+</body>
+</html>

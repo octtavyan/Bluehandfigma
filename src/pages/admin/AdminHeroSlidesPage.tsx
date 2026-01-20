@@ -2,16 +2,15 @@ import React, { useState } from 'react';
 import { Plus, Edit2, Trash2, Save, X, MoveUp, MoveDown, Image as ImageIcon, Upload } from 'lucide-react';
 import { AdminLayout } from '../../components/admin/AdminLayout';
 import { useAdmin } from '../../context/AdminContext';
-import { useOptimizedImageUpload } from '../../hooks/useOptimizedImageUpload';
+import { cloudinaryService } from '../../services/cloudinaryService';
 import { toast } from 'sonner';
 
 export const AdminHeroSlidesPage: React.FC = () => {
   const { heroSlides, addHeroSlide, updateHeroSlide, deleteHeroSlide } = useAdmin();
-  const { uploadImage, isUploading: isUploadingImage, uploadProgress } = useOptimizedImageUpload();
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingSlide, setEditingSlide] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string>('');
-  const [uploadedImageUrls, setUploadedImageUrls] = useState<any>(null);
   const [formData, setFormData] = useState({
     title: '',
     buttonText: '',
@@ -140,22 +139,25 @@ export const AdminHeroSlidesPage: React.FC = () => {
     };
     reader.readAsDataURL(file);
 
+    setIsUploadingImage(true);
+    
     try {
-      // Upload optimized versions to Supabase
-      toast.info('Optimizare și încărcare imagine...');
-      const urls = await uploadImage(file, 'paintings'); // Using paintings folder for hero slides too
+      // Upload to Cloudinary
+      toast.info('Încărcare imagine pe Cloudinary...');
+      const cloudinaryUrl = await cloudinaryService.uploadImage(file, 'hero-slides');
       
-      // Update form data with optimized URLs
+      // Update form data with Cloudinary URL
       setFormData({ 
         ...formData, 
-        backgroundImage: urls.medium // Use medium for legacy field (hero slides need high quality)
+        backgroundImage: cloudinaryUrl
       });
-      setUploadedImageUrls(urls);
       
-      toast.success('Imagine încărcată cu succes!');
+      toast.success('Imagine încărcată cu succes pe Cloudinary!');
     } catch (error) {
       toast.error('Eroare la încărcarea imaginii. Te rugăm să încerci din nou.');
       console.error('Error uploading image:', error);
+    } finally {
+      setIsUploadingImage(false);
     }
   };
 
@@ -267,7 +269,7 @@ export const AdminHeroSlidesPage: React.FC = () => {
 
       {/* Add/Edit Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-2xl text-gray-900">

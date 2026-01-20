@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router';
 import { Save, X, Upload, ArrowLeft, Eye } from 'lucide-react';
 import { AdminLayout } from '../../components/admin/AdminLayout';
 import { useAdmin } from '../../context/AdminContext';
 import { toast } from 'sonner';
 import { processBlogContentForDisplay } from '../../utils/formatBlogContent';
 import { RichTextEditor } from '../../components/admin/RichTextEditor';
+import { cloudinaryService } from '../../services/cloudinaryService';
 
 export const AdminBlogPostEditPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -78,7 +79,7 @@ export const AdminBlogPostEditPage: React.FC = () => {
     }
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -87,25 +88,26 @@ export const AdminBlogPostEditPage: React.FC = () => {
       return;
     }
 
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error('Imaginea este prea mare. Dimensiunea maximă este 2MB.');
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Imaginea este prea mare. Dimensiunea maximă este 5MB.');
       return;
     }
 
     setUploadingImage(true);
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64String = event.target?.result as string;
-      setFormData({ ...formData, image: base64String });
-      setUploadingImage(false);
-      toast.success('Imagine încărcată cu succes!');
-    };
-    reader.onerror = () => {
+    try {
+      // Upload to Cloudinary
+      toast.info('Încărcare imagine pe Cloudinary...');
+      const cloudinaryUrl = await cloudinaryService.uploadImage(file, 'blog-posts');
+      
+      setFormData({ ...formData, image: cloudinaryUrl });
+      toast.success('Imagine încărcată cu succes pe Cloudinary!');
+    } catch (error) {
       toast.error('Eroare la încărcarea imaginii. Te rugăm să încerci din nou.');
+      console.error('Error uploading image:', error);
+    } finally {
       setUploadingImage(false);
-    };
-    reader.readAsDataURL(file);
+    }
   };
 
   return (

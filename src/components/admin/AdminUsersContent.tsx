@@ -270,7 +270,7 @@ export const AdminUsersContent: React.FC = () => {
       {/* Add/Edit User Modal */}
       {(showAddModal || editingUser) && (
         <div 
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
               setShowAddModal(false);
@@ -286,7 +286,11 @@ export const AdminUsersContent: React.FC = () => {
             }
           }}
         >
-          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+          <div 
+            className="bg-white rounded-lg p-6 max-w-md w-full"
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl text-gray-900">{editingUser ? 'Editează Utilizator' : 'Adaugă Utilizator Nou'}</h3>
               <button onClick={closeModal} className="p-2 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors">

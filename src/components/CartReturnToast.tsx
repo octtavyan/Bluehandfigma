@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { toast } from 'sonner@2.0.3';
 import { ShoppingCart } from 'lucide-react';
 import { useCart } from '../context/CartContext';

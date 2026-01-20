@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { FileText } from 'lucide-react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 export const TermsPage: React.FC = () => {
   const [content, setContent] = useState<string>('');
@@ -15,18 +14,13 @@ export const TermsPage: React.FC = () => {
     try {
       // Load from database
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/kv/legal_pages_terms`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-          }
-        }
+        'https://bluehand.ro/api/index.php?action=legal_get&type=terms'
       );
 
       if (response.ok) {
         const data = await response.json();
-        if (data.value) {
-          setContent(data.value);
+        if (data.success && data.content) {
+          setContent(data.content);
         } else {
           // Default content if none exists in database
           setDefaultContent();

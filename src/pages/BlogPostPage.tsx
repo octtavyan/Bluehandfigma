@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link } from 'react-router';
 import { Calendar, ArrowLeft } from 'lucide-react';
 import { useAdmin } from '../context/AdminContext';
 import { processBlogContentForDisplay } from '../utils/formatBlogContent';

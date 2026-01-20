@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router';
 import { Lock, User, AlertCircle } from 'lucide-react';
 import { useAdmin } from '../context/AdminContext';
 import logoImage from 'figma:asset/e13722fae17f2ce12beb5ca6d76372429e2ea412.png';

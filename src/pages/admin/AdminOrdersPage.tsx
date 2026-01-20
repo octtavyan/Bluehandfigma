@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router';
 import { Search, Filter, Download, Eye, Trash2, CheckSquare, Square, MessageSquare } from 'lucide-react';
 import { AdminLayout } from '../../components/admin/AdminLayout';
 import { useAdmin, OrderStatus } from '../../context/AdminContext';
@@ -664,7 +664,7 @@ export const AdminOrdersPage: React.FC = () => {
       {/* Mobile Filter Modal */}
       {showFilterModal && (
         <div 
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-end md:items-center justify-center z-50"
+          className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-end md:items-center justify-center z-50"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
               setShowFilterModal(false);
@@ -826,7 +826,7 @@ export const AdminOrdersPage: React.FC = () => {
       {/* Delete Orders Confirmation Modal */}
       {showDeleteModal && (
         <div 
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
               setShowDeleteModal(false);

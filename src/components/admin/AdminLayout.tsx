@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { LogOut, Package, Users, UserCog, LayoutDashboard, Menu, X, Ruler, Image, Settings, Database, Monitor, FileText, Activity, DollarSign, Trash2, TrendingUp, Shield, Search } from 'lucide-react';
+import { useNavigate, useLocation, Link } from 'react-router';
+import { LogOut, Package, Users, UserCog, LayoutDashboard, Menu, X, Ruler, Image, Settings, Database, Monitor, FileText, Activity, DollarSign, Trash2, TrendingUp, Shield, Search, AlertCircle } from 'lucide-react';
 import { useAdmin } from '../../context/AdminContext';
 import { useNotifications } from '../../hooks/useNotifications';
 import { CacheService, CACHE_KEYS } from '../../lib/cacheService';
@@ -52,14 +52,11 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
     { path: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['full-admin', 'account-manager', 'production'] },
     { path: '/admin/orders', label: 'Comenzi', icon: Package, roles: ['full-admin', 'account-manager', 'production'] },
     { path: '/admin/clients', label: 'Clienți', icon: Users, roles: ['full-admin', 'account-manager', 'production'] },
-    { path: '/admin/financials', label: 'Financiare', icon: DollarSign, roles: ['full-admin', 'account-manager'] },
-    { path: '/admin/paintings', label: 'Printuri si Canvas', icon: Image, roles: ['full-admin', 'account-manager'] },
     { path: '/admin/heroslides', label: 'Hero Slides', icon: Monitor, roles: ['full-admin', 'account-manager'] },
     { path: '/admin/blog-posts', label: 'Blog Posts', icon: FileText, roles: ['full-admin', 'account-manager'] },
     { path: '/admin/legal-pages', label: 'Pagini Juridice', icon: Shield, roles: ['full-admin', 'account-manager'] },
     { path: '/admin/unsplash', label: 'Unsplash', icon: Search, roles: ['full-admin', 'account-manager'] },
     { path: '/admin/sizes', label: 'Dimensiuni', icon: Ruler, roles: ['full-admin'] },
-    { path: '/admin/frame-types', label: 'Tipuri de Rame', icon: Package, roles: ['full-admin'] },
     { path: '/admin/settings', label: 'Setări', icon: Settings, roles: ['full-admin', 'account-manager'] },
   ];
 
@@ -146,7 +143,22 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
           })}
         </nav>
 
-        <div className="p-4 border-t border-gray-700 flex-shrink-0">
+        <div className="p-4 border-t border-gray-700 flex-shrink-0 space-y-2">
+          {/* Database Check Button - Only for full-admin */}
+          {currentUser?.role === 'full-admin' && (
+            <button
+              onClick={() => handleNavClick('/admin/database-check')}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
+                location.pathname === '/admin/database-check'
+                  ? 'bg-amber-600 text-white'
+                  : 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 border border-amber-500/50'
+              }`}
+            >
+              <AlertCircle className="w-5 h-5" />
+              <span>Database Check</span>
+            </button>
+          )}
+          
           <button
             onClick={handleLogout}
             className="w-full flex items-center space-x-3 px-4 py-3 text-gray-300 hover:bg-gray-800 rounded-lg transition-colors"

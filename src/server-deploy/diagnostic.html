@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔍 BlueHand Diagnostic Tool</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
+            padding: 20px; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container { 
+            max-width: 1400px; 
+            margin: 0 auto; 
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+        h1 { color: #333; margin-bottom: 10px; }
+        .subtitle { color: #666; margin-bottom: 30px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px; }
+        .test-card { 
+            background: #f8f9fa; 
+            padding: 20px; 
+            border-radius: 8px; 
+            border: 2px solid #e0e0e0;
+        }
+        .test-card h3 { 
+            margin-bottom: 15px; 
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .status { 
+            padding: 12px; 
+            border-radius: 6px; 
+            margin: 10px 0; 
+            font-weight: 500;
+        }
+        .success { background: #d4edda; border: 2px solid #28a745; color: #155724; }
+        .error { background: #f8d7da; border: 2px solid #dc3545; color: #721c24; }
+        .warning { background: #fff3cd; border: 2px solid #ffc107; color: #856404; }
+        .info { background: #d1ecf1; border: 2px solid #17a2b8; color: #0c5460; }
+        .loading { background: #e7f3ff; border: 2px solid #2196f3; color: #1565c0; }
+        pre { 
+            background: #282c34; 
+            color: #abb2bf;
+            padding: 15px; 
+            border-radius: 6px; 
+            overflow-x: auto; 
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        button { 
+            background: #2196f3; 
+            color: white; 
+            border: none; 
+            padding: 10px 20px; 
+            border-radius: 6px; 
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        button:hover { background: #1976d2; transform: translateY(-1px); }
+        button:active { transform: translateY(0); }
+        .btn-success { background: #28a745; }
+        .btn-success:hover { background: #218838; }
+        .btn-danger { background: #dc3545; }
+        .btn-danger:hover { background: #c82333; }
+        .header-actions { 
+            display: flex; 
+            gap: 10px; 
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .emoji { font-size: 1.3em; }
+        input {
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 BlueHand Canvas - Diagnostic Tool</h1>
+        <p class="subtitle">Complete API and database diagnostic suite</p>
+        
+        <div class="header-actions">
+            <button onclick="runAllTests()" class="btn-success">▶️ Run All Tests</button>
+            <button onclick="clearAllResults()">🗑️ Clear Results</button>
+            <button onclick="checkServerLogs()">📋 Check Server Logs</button>
+            <button onclick="localStorage.clear(); alert('localStorage cleared!')" class="btn-danger">🔥 Clear localStorage</button>
+        </div>
+        
+        <div class="grid">
+            <!-- Test 1: Direct PHP -->
+            <div class="test-card">
+                <h3><span class="emoji">🔧</span> 1. Direct PHP Test</h3>
+                <button onclick="test('/api/direct-test.php', 'test1')">Test</button>
+                <div id="test1"></div>
+            </div>
+            
+            <!-- Test 2: Health Check -->
+            <div class="test-card">
+                <h3><span class="emoji">❤️</span> 2. Health Check</h3>
+                <button onclick="test('/api/health', 'test2')">Test</button>
+                <div id="test2"></div>
+            </div>
+            
+            <!-- Test 3: Database Connection -->
+            <div class="test-card">
+                <h3><span class="emoji">🗄️</span> 3. Database Connection</h3>
+                <button onclick="test('/api/simple-test.php', 'test3')">Test</button>
+                <div id="test3"></div>
+            </div>
+            
+            <!-- Test 4: Debug Info -->
+            <div class="test-card">
+                <h3><span class="emoji">🐛</span> 4. Server Debug Info</h3>
+                <button onclick="test('/api/debug', 'test4')">Test</button>
+                <div id="test4"></div>
+            </div>
+            
+            <!-- Test 5: Paintings (Direct) -->
+            <div class="test-card">
+                <h3><span class="emoji">🎨</span> 5. Paintings (Direct)</h3>
+                <button onclick="test('/api/test-paintings.php', 'test5')">Test</button>
+                <div id="test5"></div>
+            </div>
+            
+            <!-- Test 6: Paintings (Routed) -->
+            <div class="test-card">
+                <h3><span class="emoji">🖼️</span> 6. Paintings (Routed)</h3>
+                <button onclick="test('/api/paintings', 'test6')">Test</button>
+                <div id="test6"></div>
+            </div>
+            
+            <!-- Test 7: Orders (Direct) -->
+            <div class="test-card">
+                <h3><span class="emoji">📦</span> 7. Orders (Direct)</h3>
+                <button onclick="test('/api/test-orders.php', 'test7')">Test</button>
+                <div id="test7"></div>
+            </div>
+            
+            <!-- Test 8: Orders (Routed) -->
+            <div class="test-card">
+                <h3><span class="emoji">🛒</span> 8. Orders (Routed)</h3>
+                <button onclick="test('/api/orders', 'test8', true)">Test (with auth)</button>
+                <div id="test8"></div>
+            </div>
+            
+            <!-- Test 9: Categories -->
+            <div class="test-card">
+                <h3><span class="emoji">📂</span> 9. Categories</h3>
+                <button onclick="test('/api/categories', 'test9')">Test</button>
+                <div id="test9"></div>
+            </div>
+            
+            <!-- Test 10: Admin User -->
+            <div class="test-card">
+                <h3><span class="emoji">👤</span> 10. Create Admin User</h3>
+                <button onclick="window.open('/api/create-admin-user.php', '_blank')">Open in New Tab</button>
+                <div id="test10">
+                    <p class="info" style="margin-top: 10px;">
+                        This will open the admin user creation page in a new tab
+                    </p>
+                </div>
+            </div>
+            
+            <!-- Test 11: Login -->
+            <div class="test-card">
+                <h3><span class="emoji">🔐</span> 11. Login Test</h3>
+                <input type="text" id="username" placeholder="Username" value="admin">
+                <input type="password" id="password" placeholder="Password" value="admin123">
+                <button onclick="testLogin()">Login</button>
+                <div id="test11"></div>
+            </div>
+            
+            <!-- Test 12: Token Check -->
+            <div class="test-card">
+                <h3><span class="emoji">🎫</span> 12. Token Status</h3>
+                <button onclick="checkToken()">Check Token</button>
+                <div id="test12"></div>
+            </div>
+        </div>
+        
+        <div style="margin-top: 30px; padding: 20px; background: #f0f0f0; border-radius: 8px;">
+            <h3>📊 Summary</h3>
+            <div id="summary" style="margin-top: 10px;">
+                <p class="info">Run tests to see summary</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let results = {};
+        
+        async function test(url, id, requireAuth = false) {
+            const container = document.getElementById(id);
+            container.innerHTML = '<div class="status loading">⏳ Testing...</div>';
+            
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                
+                if (requireAuth) {
+                    const token = localStorage.getItem('admin_token');
+                    if (!token) {
+                        container.innerHTML = '<div class="status warning">⚠️ Login required first</div>';
+                        return;
+                    }
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+                
+                console.log(`Testing: ${url}`);
+                const startTime = Date.now();
+                const response = await fetch(url, { headers });
+                const duration = Date.now() - startTime;
+                
+                let data;
+                const contentType = response.headers.get('content-type');
+                if (contentType && contentType.includes('application/json')) {
+                    data = await response.json();
+                } else {
+                    const text = await response.text();
+                    data = { raw_response: text };
+                }
+                
+                results[id] = { success: response.ok, status: response.status, duration };
+                
+                if (response.ok) {
+                    container.innerHTML = `
+                        <div class="status success">
+                            ✅ Success (${response.status}) - ${duration}ms
+                        </div>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    `;
+                } else {
+                    container.innerHTML = `
+                        <div class="status error">
+                            ❌ Error (${response.status}) - ${duration}ms
+                        </div>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    `;
+                }
+            } catch (error) {
+                results[id] = { success: false, error: error.message };
+                container.innerHTML = `
+                    <div class="status error">
+                        ❌ Fetch Failed: ${error.message}
+                    </div>
+                    <div class="status warning" style="margin-top: 10px;">
+                        <strong>Common causes:</strong><br>
+                        • CORS not configured (check .htaccess)<br>
+                        • Server not responding (check PHP errors)<br>
+                        • File doesn't exist (404)<br>
+                        • PHP syntax error (500)<br>
+                    </div>
+                `;
+                console.error('Fetch error:', error);
+            }
+            
+            updateSummary();
+        }
+        
+        async function testLogin() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const container = document.getElementById('test11');
+            
+            container.innerHTML = '<div class="status loading">⏳ Logging in...</div>';
+            
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    localStorage.setItem('admin_token', data.token);
+                    localStorage.setItem('admin_user', JSON.stringify(data.user));
+                    
+                    container.innerHTML = `
+                        <div class="status success">
+                            ✅ Login Successful!
+                        </div>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    `;
+                    
+                    // Auto-check token
+                    setTimeout(() => checkToken(), 500);
+                } else {
+                    container.innerHTML = `
+                        <div class="status error">
+                            ❌ Login Failed (${response.status})
+                        </div>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    `;
+                }
+            } catch (error) {
+                container.innerHTML = `
+                    <div class="status error">
+                        ❌ Login Request Failed: ${error.message}
+                    </div>
+                `;
+            }
+        }
+        
+        function checkToken() {
+            const token = localStorage.getItem('admin_token');
+            const user = localStorage.getItem('admin_user');
+            const container = document.getElementById('test12');
+            
+            if (token) {
+                try {
+                    const decoded = JSON.parse(atob(token));
+                    const expiresIn = Math.round((decoded.exp - Date.now() / 1000) / 3600);
+                    
+                    container.innerHTML = `
+                        <div class="status success">
+                            ✅ Token Found (expires in ${expiresIn}h)
+                        </div>
+                        <p><strong>User:</strong></p>
+                        <pre>${user || 'N/A'}</pre>
+                        <p><strong>Token Data:</strong></p>
+                        <pre>${JSON.stringify(decoded, null, 2)}</pre>
+                    `;
+                } catch (e) {
+                    container.innerHTML = `
+                        <div class="status warning">
+                            ⚠️ Token found but invalid: ${e.message}
+                        </div>
+                    `;
+                }
+            } else {
+                container.innerHTML = `
+                    <div class="status error">
+                        ❌ No Token - Login Required
+                    </div>
+                `;
+            }
+        }
+        
+        function runAllTests() {
+            const tests = [
+                () => test('/api/direct-test.php', 'test1'),
+                () => test('/api/health', 'test2'),
+                () => test('/api/simple-test.php', 'test3'),
+                () => test('/api/debug', 'test4'),
+                () => test('/api/test-paintings.php', 'test5'),
+                () => test('/api/paintings', 'test6'),
+                () => test('/api/test-orders.php', 'test7'),
+                () => test('/api/categories', 'test9'),
+                () => checkToken()
+            ];
+            
+            tests.forEach((testFn, index) => {
+                setTimeout(testFn, index * 500);
+            });
+        }
+        
+        function clearAllResults() {
+            for (let i = 1; i <= 12; i++) {
+                const container = document.getElementById(`test${i}`);
+                if (container) container.innerHTML = '';
+            }
+            results = {};
+            updateSummary();
+        }
+        
+        function updateSummary() {
+            const total = Object.keys(results).length;
+            const passed = Object.values(results).filter(r => r.success).length;
+            const failed = total - passed;
+            
+            const summaryDiv = document.getElementById('summary');
+            if (total === 0) {
+                summaryDiv.innerHTML = '<p class="info">Run tests to see summary</p>';
+                return;
+            }
+            
+            summaryDiv.innerHTML = `
+                <div style="display: flex; gap: 20px;">
+                    <div class="status success" style="flex: 1;">
+                        <strong>✅ Passed:</strong> ${passed}
+                    </div>
+                    <div class="status error" style="flex: 1;">
+                        <strong>❌ Failed:</strong> ${failed}
+                    </div>
+                    <div class="status info" style="flex: 1;">
+                        <strong>📊 Total:</strong> ${total}
+                    </div>
+                </div>
+            `;
+        }
+        
+        function checkServerLogs() {
+            alert('Server logs location:\n\n/bluehand.ro/api/error.log\n\nView this file via cPanel File Manager or FTP to see detailed PHP errors.');
+        }
+        
+        // Auto-check token on page load
+        window.addEventListener('load', () => {
+            checkToken();
+        });
+    </script>
+</body>
+</html>
