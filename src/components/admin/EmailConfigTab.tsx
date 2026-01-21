@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Mail, Save, AlertCircle, CheckCircle, Eye, EyeOff, Send } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { EmailDomainChecker } from './EmailDomainChecker';
 
 interface ResendSettings {
   apiKey: string;
@@ -230,6 +231,11 @@ export const EmailConfigTab: React.FC = () => {
           <p className="mt-1 text-xs text-gray-500">
             Adresa de email de la care se vor trimite emailurile (trebuie verificată în Resend)
           </p>
+          <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg p-3">
+            <p className="text-xs text-amber-900">
+              <strong>ℹ️ Important:</strong> Dacă domeniul nu este verificat în Resend, sistemul va folosi automat <code className="bg-amber-100 px-1 py-0.5 rounded">onboarding@resend.dev</code> (domeniul de test al Resend). Pentru a folosi emailul tău personalizat, verifică domeniul în <a href="https://resend.com/domains" target="_blank" rel="noopener noreferrer" className="underline hover:text-amber-700">Resend Dashboard → Domains</a>.
+            </p>
+          </div>
         </div>
 
         {/* From Name */}
@@ -277,6 +283,11 @@ export const EmailConfigTab: React.FC = () => {
               Verifică dacă emailurile se trimit corect înainte de a le folosi în producție
             </p>
           </div>
+        </div>
+
+        {/* Domain Verification Checker */}
+        <div className="pt-6 border-t border-gray-200">
+          <EmailDomainChecker />
         </div>
 
         {/* Info Box */}

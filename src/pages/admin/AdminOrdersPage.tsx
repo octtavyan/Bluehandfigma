@@ -5,6 +5,7 @@ import { AdminLayout } from '../../components/admin/AdminLayout';
 import { useAdmin, OrderStatus } from '../../context/AdminContext';
 import { toast } from 'sonner@2.0.3';
 import { StatusChangeModal } from '../../components/admin/StatusChangeModal';
+import { projectId, publicAnonKey } from '../../utils/supabase/info';
 
 export const AdminOrdersPage: React.FC = () => {
   const navigate = useNavigate();
@@ -20,6 +21,10 @@ export const AdminOrdersPage: React.FC = () => {
   const [bulkStatusModalOpen, setBulkStatusModalOpen] = useState(false);
   const [bulkNewStatus, setBulkNewStatus] = useState<OrderStatus | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 15;
 
   // Apply filter from URL query parameter
   useEffect(() => {
@@ -59,6 +64,22 @@ export const AdminOrdersPage: React.FC = () => {
     return matchesSearch && matchesStatus && matchesDate;
   });
 
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredOrders.length / ITEMS_PER_PAGE);
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const endIndex = startIndex + ITEMS_PER_PAGE;
+  const paginatedOrders = filteredOrders.slice(startIndex, endIndex);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter]);
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'new': return 'bg-blue-100 text-blue-800';
@@ -83,7 +104,7 @@ export const AdminOrdersPage: React.FC = () => {
     }
   };
 
-  const handleStatusChange = (orderId: string, currentStatus: OrderStatus, newStatus: OrderStatus) => {
+  const handleStatusChange = async (orderId: string, currentStatus: OrderStatus, newStatus: OrderStatus) => {
     // Statuses that require a reason/note: 'queue', 'returned', 'closed'
     const requiresReason = newStatus === 'queue' || newStatus === 'returned' || newStatus === 'closed';
     
@@ -94,18 +115,64 @@ export const AdminOrdersPage: React.FC = () => {
     } else {
       // Update directly for simple status changes (new, in-production, delivered)
       updateOrderStatus(orderId, newStatus, '', currentUser?.fullName);
+      
+      // If status is changing to "delivered", send shipped confirmation email
+      if (newStatus === 'delivered') {
+        await sendShippedEmail(orderId);
+      }
+    }
+  };
+  
+  // Helper function to send shipped confirmation email
+  const sendShippedEmail = async (orderId: string) => {
+    try {
+      const order = orders.find(o => o.id === orderId);
+      if (!order || !order.clientEmail || !order.orderNumber) {
+        toast.error('Eroare: Date comandă incomplete');
+        return;
+      }
+      
+      const emailResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/email/send-shipped-confirmation`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${publicAnonKey}`,
+        },
+        body: JSON.stringify({
+          orderNumber: order.orderNumber,
+          customerName: order.clientName,
+          customerEmail: order.clientEmail,
+        }),
+      });
+      
+      const responseData = await emailResponse.json();
+      
+      if (!emailResponse.ok) {
+        throw new Error(responseData.error || 'Email sending failed');
+      }
+      
+      toast.success('Email de confirmare livrare trimis!');
+    } catch (error) {
+      console.error('Failed to send shipped confirmation email:', error);
+      toast.error(`Eroare la trimiterea emailului: ${error instanceof Error ? error.message : 'Eroare necunoscută'}`);
     }
   };
 
-  const confirmStatusChange = (reason: string) => {
+  const confirmStatusChange = async (reason: string) => {
     if (selectedOrder) {
       updateOrderStatus(selectedOrder.id, selectedOrder.newStatus, reason, currentUser?.fullName);
+      
+      // If status is changing to "delivered", send shipped confirmation email
+      if (selectedOrder.newStatus === 'delivered') {
+        await sendShippedEmail(selectedOrder.id);
+      }
+      
       setStatusModalOpen(false);
       setSelectedOrder(null);
     }
   };
 
-  const handleBulkStatusChange = (newStatus: OrderStatus) => {
+  const handleBulkStatusChange = async (newStatus: OrderStatus) => {
     // Statuses that require a reason/note: 'queue', 'returned', 'closed'
     const requiresReason = newStatus === 'queue' || newStatus === 'returned' || newStatus === 'closed';
     
@@ -115,18 +182,28 @@ export const AdminOrdersPage: React.FC = () => {
       setBulkStatusModalOpen(true);
     } else {
       // Update directly for simple status changes (new, in-production, delivered)
-      selectedOrders.forEach(orderId => {
+      for (const orderId of selectedOrders) {
         updateOrderStatus(orderId, newStatus, '', currentUser?.fullName);
-      });
+        
+        // If status is changing to "delivered", send shipped confirmation email
+        if (newStatus === 'delivered') {
+          await sendShippedEmail(orderId);
+        }
+      }
       setSelectedOrders([]);
     }
   };
 
-  const confirmBulkStatusChange = (reason: string) => {
+  const confirmBulkStatusChange = async (reason: string) => {
     if (bulkNewStatus && selectedOrders.length > 0) {
-      selectedOrders.forEach(orderId => {
+      for (const orderId of selectedOrders) {
         updateOrderStatus(orderId, bulkNewStatus, reason, currentUser?.fullName);
-      });
+        
+        // If status is changing to "delivered", send shipped confirmation email
+        if (bulkNewStatus === 'delivered') {
+          await sendShippedEmail(orderId);
+        }
+      }
       setBulkStatusModalOpen(false);
       setBulkNewStatus(null);
       setSelectedOrders([]);
@@ -326,7 +403,7 @@ export const AdminOrdersPage: React.FC = () => {
             Nu s-au găsit comenzi
           </div>
         ) : (
-          filteredOrders.map((order) => (
+          paginatedOrders.map((order) => (
             <div
               key={order.id}
               className={`bg-white rounded-lg border-2 transition-all ${
@@ -359,7 +436,7 @@ export const AdminOrdersPage: React.FC = () => {
                   >
                     <div className="flex items-start justify-between mb-3">
                       <div>
-                        <p className="text-sm text-gray-900 mb-1">#{order.id.slice(-8)}</p>
+                        <p className="text-sm text-gray-900 mb-1">#{order.orderNumber || order.id.slice(-8)}</p>
                         <p className="text-sm text-gray-600">{order.clientName}</p>
                         <p className="text-xs text-gray-500 mt-1">{order.clientEmail}</p>
                       </div>
@@ -523,7 +600,7 @@ export const AdminOrdersPage: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredOrders.map((order) => (
+                paginatedOrders.map((order) => (
                   <tr key={order.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
                       <button
@@ -542,7 +619,7 @@ export const AdminOrdersPage: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">
                       <div className="flex items-center space-x-2">
-                        <span>#{order.id.slice(-8)}</span>
+                        <span>#{order.orderNumber || order.id.slice(-8)}</span>
                         {getTotalNotesCount(order.id) > 0 && (
                           <div 
                             onClick={(e) => {
@@ -636,6 +713,29 @@ export const AdminOrdersPage: React.FC = () => {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="bg-gray-50 px-6 py-4 flex items-center justify-between">
+            <button
+              onClick={() => handlePageChange(currentPage - 1)}
+              disabled={currentPage === 1}
+              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+            >
+              Anterior
+            </button>
+            <div className="text-sm text-gray-700">
+              Pagina {currentPage} din {totalPages}
+            </div>
+            <button
+              onClick={() => handlePageChange(currentPage + 1)}
+              disabled={currentPage === totalPages}
+              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+            >
+              Următor
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Status Change Modal */}

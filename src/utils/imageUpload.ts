@@ -1,48 +1,22 @@
-import { projectId, publicAnonKey } from './supabase/info';
+import { cloudinaryService } from '../services/cloudinaryService';
 
 /**
- * Uploads a base64 image to Supabase Storage
+ * Uploads a base64 image to Cloudinary
  * @param base64Image - Base64 encoded image string
- * @param fileName - Desired file name
+ * @param fileName - Desired file name (for logging purposes)
  * @returns Public URL of the uploaded image
  */
 export async function uploadImageToStorage(base64Image: string, fileName: string): Promise<string> {
   try {
-    // Convert base64 to blob
-    const response = await fetch(base64Image);
-    const blob = await response.blob();
+    console.log(`📤 Uploading ${fileName} to Cloudinary...`);
     
-    // Create FormData
-    const formData = new FormData();
-    formData.append('file', blob, fileName);
-    formData.append('path', `personalized/${Date.now()}-${fileName}`);
+    // Upload directly to Cloudinary using base64
+    const url = await cloudinaryService.uploadFromDataUrl(base64Image, 'personalized-orders');
     
-    // Upload to server
-    const uploadResponse = await fetch(
-      `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/storage/upload`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
-        },
-        body: formData,
-      }
-    );
-    
-    if (!uploadResponse.ok) {
-      const errorData = await uploadResponse.json();
-      throw new Error(`Upload failed: ${errorData.error || 'Unknown error'}`);
-    }
-    
-    const result = await uploadResponse.json();
-    
-    if (!result.success || !result.url) {
-      throw new Error('Upload succeeded but no URL returned');
-    }
-    
-    return result.url;
+    console.log(`✅ ${fileName} uploaded:`, url);
+    return url;
   } catch (error) {
-    console.error('❌ Image upload error:', error);
+    console.error(`❌ Image upload error (${fileName}):`, error);
     throw error;
   }
 }

@@ -61,11 +61,9 @@ function getSessionId(): string {
 function validateCartItem(item: CartItem): boolean {
   // Ensure printType and frameType are strings (not objects)
   if (item.printType && typeof item.printType !== 'string') {
-    console.warn('Invalid printType in cart item:', item.id);
     return false;
   }
   if (item.frameType && typeof item.frameType !== 'string') {
-    console.warn('Invalid frameType in cart item:', item.id);
     return false;
   }
   return true;
@@ -102,8 +100,6 @@ export const CartProvider: React.FC<{ children: ReactNode; sizes?: SizeData[]; f
             } else {
               setHasShownReturnToast(true);
             }
-            
-            console.log('✅ Cart loaded from server:', cleanedCart.length, 'items');
           }
         } else {
           // Fallback to localStorage if server fails
@@ -167,16 +163,13 @@ export const CartProvider: React.FC<{ children: ReactNode; sizes?: SizeData[]; f
             'Authorization': `Bearer ${publicAnonKey}`
           },
           body: JSON.stringify({ sessionId, cart: cartToSave })
-        }).catch(error => {
-          console.error('⚠️ Failed to save cart to server:', error);
+        }).catch(() => {
+          // Silent fail - not critical
         });
         
       } catch (error: any) {
         if (error.name === 'QuotaExceededError') {
-          console.error('⚠️ localStorage quota exceeded');
           toast.error('Coșul este plin. Te rugăm să finalizezi comanda.');
-        } else {
-          console.error('❌ Error saving cart:', error);
         }
       }
     };
@@ -200,12 +193,10 @@ export const CartProvider: React.FC<{ children: ReactNode; sizes?: SizeData[]; f
     try {
       // Validate inputs
       if (printType && typeof printType !== 'string') {
-        console.error('❌ Invalid printType - must be string:', printType);
         toast.error('Eroare la adăugarea în coș.');
         return;
       }
       if (frameType && typeof frameType !== 'string') {
-        console.error('❌ Invalid frameType - must be string:', frameType);
         toast.error('Eroare la adăugarea în coș.');
         return;
       }
@@ -262,7 +253,7 @@ export const CartProvider: React.FC<{ children: ReactNode; sizes?: SizeData[]; f
         ];
       });
     } catch (error) {
-      console.error('❌ Error adding to cart:', error);
+      console.error('Error adding to cart:', error);
       toast.error('Eroare la adăugarea în coș. Te rugăm să încerci din nou.');
     }
   };
@@ -293,7 +284,7 @@ export const CartProvider: React.FC<{ children: ReactNode; sizes?: SizeData[]; f
         }
       });
     } catch (error) {
-      console.error('⚠️ Failed to clear cart on server:', error);
+      // Silent fail - not critical
     }
   };
 

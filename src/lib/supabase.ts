@@ -42,7 +42,7 @@ export const getSupabaseClient = (): SupabaseClient => {
           if (!headers.has('Authorization')) {
             headers.set('Authorization', `Bearer ${publicAnonKey}`);
           }
-          if (!headers.has('Content-Type')) {
+          if (!headers.has('Content-Type') && options.method !== 'GET') {
             headers.set('Content-Type', 'application/json');
           }
           
@@ -54,7 +54,13 @@ export const getSupabaseClient = (): SupabaseClient => {
           };
           
           console.log('🌐 Fetch:', url.toString().substring(0, 80), '| Has apikey:', headers.has('apikey'));
-          return fetch(url, newOptions);
+          
+          // Use native fetch from global scope to avoid recursion
+          return globalThis.fetch(url, newOptions).catch(error => {
+            console.error('❌ Fetch error for:', url.toString().substring(0, 80));
+            console.error('❌ Error details:', error);
+            throw error;
+          });
         }
       },
       realtime: {

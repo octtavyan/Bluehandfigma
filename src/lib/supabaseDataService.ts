@@ -156,47 +156,65 @@ export const paintingsService = {
   async getAll(): Promise<Painting[]> {
     console.log('🔄 Fetching paintings from Supabase...');
     
-    const { data, error } = await supabase
-      .from('paintings')
-      .select('id, title, category, subcategory, description, image, image_urls, available_sizes, price, discount, is_active, is_bestseller, created_at, orientation, dominant_color, print_types, frame_types_by_print_type')
-      .eq('is_active', true)
-      .order('created_at', { ascending: false })
-      .limit(100); // PREVENT TIMEOUT: Limit to 100 paintings
+    try {
+      // Use abortSignal with timeout to prevent hanging queries
+      const abortController = new AbortController();
+      const timeoutId = setTimeout(() => abortController.abort(), 30000); // Increased to 30 second timeout
+      
+      const { data, error } = await supabase
+        .from('paintings')
+        .select('id, title, category, subcategory, description, image, image_urls, available_sizes, price, discount, is_active, is_bestseller, created_at, orientation, dominant_color, print_types, frame_types_by_print_type')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(50) // Reduced from 100 to 50 for faster queries
+        .abortSignal(abortController.signal);
 
-    if (error) {
-      // Check if it's a "table doesn't exist" error
-      if (error.message?.includes('relation') || error.message?.includes('does not exist') || error.code === 'PGRST116') {
-        console.log('ℹ️ Paintings table not found (OK - using Unsplash gallery)');
+      clearTimeout(timeoutId);
+
+      if (error) {
+        // Check if it's a timeout or abort error
+        if (error.message?.includes('aborted') || error.code === '57014') {
+          console.warn('⚠️ Paintings query timeout - silently continuing with Unsplash gallery only');
+          return [];
+        }
+        
+        // Check if it's a "table doesn't exist" error
+        if (error.message?.includes('relation') || error.message?.includes('does not exist') || error.code === 'PGRST116') {
+          console.log('ℹ️ Paintings table not found (OK - using Unsplash gallery)');
+          return [];
+        }
+        
+        // Only log real errors (not table missing errors)
+        console.error('❌ Error fetching paintings:', error);
         return [];
       }
-      
-      // Only log real errors (not table missing errors)
-      console.error('❌ Error fetching paintings:', error);
+
+      console.log(`✅ Fetched ${data?.length || 0} paintings from Supabase`);
+
+      return (data || []).map(p => ({
+        id: p.id,
+        title: p.title,
+        slug: p.title?.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || '', // Generate slug from title
+        category: p.category,
+        subcategory: p.subcategory || '',
+        description: p.description,
+        image: p.image,
+        imageUrls: p.image_urls,
+        availableSizes: p.available_sizes || [],
+        price: p.price,
+        discount: p.discount || 0,
+        isActive: p.is_active,
+        isBestseller: p.is_bestseller || false,
+        createdAt: p.created_at,
+        orientation: p.orientation,
+        dominantColor: p.dominant_color,
+        printTypes: p.print_types || [],
+        frameTypesByPrintType: p.frame_types_by_print_type || { 'Print Hartie': [], 'Print Canvas': [] }
+      }));
+    } catch (error: any) {
+      console.error('❌ Exception fetching paintings:', error);
       return [];
     }
-
-    console.log(`✅ Fetched ${data?.length || 0} paintings from Supabase`);
-
-    return (data || []).map(p => ({
-      id: p.id,
-      title: p.title,
-      slug: p.title?.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || '', // Generate slug from title
-      category: p.category,
-      subcategory: p.subcategory || '',
-      description: p.description,
-      image: p.image,
-      imageUrls: p.image_urls,
-      availableSizes: p.available_sizes || [],
-      price: p.price,
-      discount: p.discount || 0,
-      isActive: p.is_active,
-      isBestseller: p.is_bestseller || false,
-      createdAt: p.created_at,
-      orientation: p.orientation,
-      dominantColor: p.dominant_color,
-      printTypes: p.print_types || [],
-      frameTypesByPrintType: p.frame_types_by_print_type || { 'Print Hartie': [], 'Print Canvas': [] }
-    }));
   },
 
   async create(painting: Omit<Painting, 'id' | 'createdAt'>): Promise<Painting | null> {
@@ -601,51 +619,127 @@ export const ordersService = {
   },
 
   async getAll(): Promise<Order[]> {
-    const { data, error } = await supabase
-      .from('orders')
-      .select('id, order_number, customer_name, customer_email, customer_phone, delivery_address, delivery_city, delivery_county, delivery_postal_code, delivery_option, payment_method, payment_status, items, subtotal, delivery_cost, total, status, notes, created_at, person_type, company_name, cui, reg_com, company_county, company_city, company_address')
-      .order('created_at', { ascending: false })
-      .limit(100); // PREVENT TIMEOUT: Limit to 100 most recent orders
+    console.log('🔄 Fetching orders from Supabase...');
+    
+    try {
+      // ⚡ OPTIMIZED: Fetch essential fields + items array for list view
+      // Items are needed to display canvas count in table listing
+      const { data, error } = await supabase
+        .from('orders')
+        .select('id, order_number, customer_name, customer_email, status, total, created_at, notes, person_type, items')
+        .order('created_at', { ascending: false });
 
-    if (error) {
-      // Check if it's a "table doesn't exist" error
-      if (error.message?.includes('relation') || error.message?.includes('does not exist') || error.code === 'PGRST116') {
-        console.log('ℹ️ Orders table not found - database setup required');
+      if (error) {
+        // Check if it's a timeout error
+        if (error.code === '57014') {
+          console.warn('⚠️ Orders query timeout - trying with limit...');
+          
+          // Fallback: Try with smaller limit
+          const { data: fallbackData, error: fallbackError } = await supabase
+            .from('orders')
+            .select('id, order_number, customer_name, customer_email, status, total, created_at, person_type, items')
+            .order('created_at', { ascending: false })
+            .limit(50);
+            
+          if (fallbackError || !fallbackData) {
+            console.error('❌ Fallback query also failed, returning empty array');
+            return [];
+          }
+          
+          console.log(`✅ Fetched ${fallbackData.length} orders (fallback mode)`);
+          return fallbackData.map(o => ({
+            id: o.id,
+            orderNumber: o.order_number,
+            customerName: o.customer_name,
+            customerEmail: o.customer_email,
+            customerPhone: '',
+            deliveryAddress: '',
+            deliveryCity: '',
+            deliveryCounty: '',
+            deliveryPostalCode: '',
+            deliveryOption: '',
+            paymentMethod: '',
+            paymentStatus: '',
+            items: Array.isArray(o.items) ? o.items : [], // Keep items for count in listing
+            subtotal: o.total,
+            deliveryCost: 0,
+            total: o.total,
+            status: o.status,
+            notes: '',
+            createdAt: o.created_at,
+            personType: o.person_type,
+            companyName: '',
+            cui: '',
+            regCom: '',
+            companyCounty: '',
+            companyCity: '',
+            companyAddress: ''
+          }));
+        }
+        
+        // Check if it's a "table doesn't exist" error
+        if (error.message?.includes('relation') || error.message?.includes('does not exist') || error.code === 'PGRST116') {
+          console.log('ℹ️ Orders table not found - database setup required');
+          return [];
+        }
+        
+        console.error('❌ Error fetching orders:', error);
         return [];
       }
-      
-      console.error('Error fetching orders:', error);
+
+      console.log(`✅ Fetched ${data?.length || 0} orders from Supabase (optimized mode with items array)`);
+
+      // Return optimized version with items array included for count display
+      return (data || []).map(o => ({
+        id: o.id,
+        orderNumber: o.order_number,
+        customerName: o.customer_name,
+        customerEmail: o.customer_email,
+        customerPhone: '',
+        deliveryAddress: '',
+        deliveryCity: '',
+        deliveryCounty: '',
+        deliveryPostalCode: '',
+        deliveryOption: '',
+        paymentMethod: '',
+        paymentStatus: '',
+        items: Array.isArray(o.items) ? o.items : [], // Keep items for count in listing
+        subtotal: o.total,
+        deliveryCost: 0,
+        total: o.total,
+        status: o.status,
+        notes: o.notes || '',
+        createdAt: o.created_at,
+        personType: o.person_type,
+        companyName: '',
+        cui: '',
+        regCom: '',
+        companyCounty: '',
+        companyCity: '',
+        companyAddress: ''
+      }));
+    } catch (error: any) {
+      console.error('❌ Exception fetching orders:', error);
       return [];
     }
+  },
 
-    return (data || []).map(o => ({
-      id: o.id,
-      orderNumber: o.order_number,
-      customerName: o.customer_name,
-      customerEmail: o.customer_email,
-      customerPhone: o.customer_phone,
-      deliveryAddress: o.delivery_address,
-      deliveryCity: o.delivery_city,
-      deliveryCounty: o.delivery_county,
-      deliveryPostalCode: o.delivery_postal_code,
-      deliveryOption: o.delivery_option,
-      paymentMethod: o.payment_method,
-      paymentStatus: o.payment_status,
-      items: o.items || [],
-      subtotal: o.subtotal,
-      deliveryCost: o.delivery_cost,
-      total: o.total,
-      status: o.status,
-      notes: o.notes,
-      createdAt: o.created_at,
-      personType: o.person_type,
-      companyName: o.company_name,
-      cui: o.cui,
-      regCom: o.reg_com,
-      companyCounty: o.company_county,
-      companyCity: o.company_city,
-      companyAddress: o.company_address
-    }));
+  async getTotalCount(): Promise<number> {
+    try {
+      const { count, error } = await supabase
+        .from('orders')
+        .select('*', { count: 'exact', head: true });
+
+      if (error) {
+        console.error('❌ Error fetching orders count:', error);
+        return 0;
+      }
+
+      return count || 0;
+    } catch (error: any) {
+      console.error('❌ Exception fetching orders count:', error);
+      return 0;
+    }
   },
 
   async getById(id: string): Promise<Order | null> {
@@ -801,32 +895,58 @@ export const ordersService = {
 
 export const clientsService = {
   async getAll(): Promise<Client[]> {
-    const { data, error } = await supabase
-      .from('clients')
-      .select('*')
-      .order('created_at', { ascending: false });
+    try {
+      console.log('🔄 Fetching clients from Supabase...');
+      
+      const { data, error } = await supabase
+        .from('clients')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-    if (error) {
-      // Check if it's a "table doesn't exist" error
-      if (error.message?.includes('relation') || error.message?.includes('does not exist') || error.code === 'PGRST116') {
-        console.log('ℹ️ Clients table not found - database setup required');
+      if (error) {
+        // Check if it's a "table doesn't exist" error
+        if (error.message?.includes('relation') || error.message?.includes('does not exist') || error.code === 'PGRST116') {
+          console.log('ℹ️ Clients table not found - database setup required');
+          return [];
+        }
+        
+        // Log detailed error information
+        console.error('❌ Error fetching clients:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code
+        });
         return [];
       }
+
+      console.log(`✅ Fetched ${data?.length || 0} clients from Supabase`);
+
+      return (data || []).map(c => ({
+        id: c.id,
+        name: c.name,
+        email: c.email,
+        phone: c.phone,
+        address: c.address,
+        createdAt: c.created_at,
+        totalOrders: c.total_orders || 0,
+        totalSpent: c.total_spent || 0
+      }));
+    } catch (error: any) {
+      // Catch network errors (CORS, connection issues, etc.)
+      console.error('❌ Exception fetching clients:', error);
+      console.error('❌ Error type:', error.constructor.name);
+      console.error('❌ Error message:', error.message);
       
-      console.error('Error fetching clients:', error);
+      if (error.message?.includes('Failed to fetch')) {
+        console.error('🚨 Network error - possible causes:');
+        console.error('   1. CORS configuration issue');
+        console.error('   2. Network connectivity problem');
+        console.error('   3. Supabase service unavailable');
+      }
+      
       return [];
     }
-
-    return (data || []).map(c => ({
-      id: c.id,
-      name: c.name,
-      email: c.email,
-      phone: c.phone,
-      address: c.address,
-      createdAt: c.created_at,
-      totalOrders: c.total_orders || 0,
-      totalSpent: c.total_spent || 0
-    }));
   },
 
   async getByEmail(email: string): Promise<Client | null> {
@@ -1163,14 +1283,17 @@ export const heroSlidesService = {
 
 export const blogPostsService = {
   async getAll(): Promise<BlogPost[]> {
+    // ⚡ OPTIMIZED: Fetch only lightweight fields (exclude full content to prevent timeout)
+    // Full content is loaded on-demand when viewing individual blog post
     const { data, error } = await supabase
       .from('blog_posts')
-      .select('*')
-      .order('created_at', { ascending: false });
+      .select('id, title, slug, excerpt, image, category, author, publish_date, is_published, views, created_at, updated_at')
+      .order('created_at', { ascending: false })
+      .limit(100); // Limit to 100 most recent posts
 
     if (error) {
-      console.error('Error fetching blog posts:', error);
-      return [];
+      console.error('❌ Error fetching blog posts:', error);
+      throw error; // Throw to trigger retry logic
     }
 
     // Map snake_case database fields to camelCase JavaScript fields
@@ -1179,7 +1302,7 @@ export const blogPostsService = {
       title: p.title || '',
       slug: p.slug || '',
       excerpt: p.excerpt || '',
-      content: p.content || '',
+      content: '', // Empty content in listing - loaded on-demand
       image: p.image || '',
       category: p.category || '',
       author: p.author || '',

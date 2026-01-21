@@ -59,7 +59,6 @@ export const AdminHeroSlidesPage: React.FC = () => {
       order: 1,
     });
     setImagePreview('');
-    setUploadedImageUrls(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -269,8 +268,18 @@ export const AdminHeroSlidesPage: React.FC = () => {
 
       {/* Add/Edit Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div 
+          className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              handleCloseModal();
+            }
+          }}
+        >
+          <div 
+            className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-2xl text-gray-900">
                 {editingSlide ? 'Editează Slide' : 'Adaugă Slide Nou'}
@@ -331,10 +340,11 @@ export const AdminHeroSlidesPage: React.FC = () => {
                       accept="image/*"
                       onChange={handleImageUpload}
                       className="hidden"
+                      disabled={isUploadingImage}
                     />
                     <Upload className="w-5 h-5 mr-2 text-gray-600" />
                     <span className="text-gray-700">
-                      {isUploadingImage ? `Se încarcă... (${uploadProgress}%)` : 'Încarcă imagine de pe calculator'}
+                      {isUploadingImage ? 'Se încarcă pe Cloudinary...' : 'Încarcă imagine de pe calculator'}
                     </span>
                   </label>
                   <p className="text-xs text-gray-500 mt-1">

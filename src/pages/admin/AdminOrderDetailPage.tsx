@@ -4,6 +4,8 @@ import { ArrowLeft, Package, User, MapPin, Phone, Mail, Calendar, CreditCard, Me
 import { AdminLayout } from '../../components/admin/AdminLayout';
 import { useAdmin, OrderStatus } from '../../context/AdminContext';
 import type { OrderNote } from '../../context/AdminContext';
+import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { toast } from 'sonner';
 
 export const AdminOrderDetailPage: React.FC = () => {
   const { orderId } = useParams<{ orderId: string }>();
@@ -17,24 +19,15 @@ export const AdminOrderDetailPage: React.FC = () => {
   
   // Load full order details (including items) when page loads
   useEffect(() => {
-    // Only load details once when the page first mounts and only if items are missing
     if (orderId && order && !isLoadingDetails.current && !detailsLoaded) {
-      const needsItems = !order.canvasItems || order.canvasItems.length === 0 || order.canvasItems[0]?.type === 'placeholder';
+      isLoadingDetails.current = true;
       
-      if (needsItems) {
-        console.log('📡 Loading order details for:', orderId);
-        isLoadingDetails.current = true;
-        
-        loadOrderDetails(orderId).then(() => {
-          setDetailsLoaded(true);
-          isLoadingDetails.current = false;
-        }).catch(() => {
-          isLoadingDetails.current = false;
-        });
-      } else {
-        // Items already loaded, mark as loaded
+      loadOrderDetails(orderId).then(() => {
         setDetailsLoaded(true);
-      }
+        isLoadingDetails.current = false;
+      }).catch(() => {
+        isLoadingDetails.current = false;
+      });
     }
   }, [orderId]); // Only run when orderId changes - do not include order or detailsLoaded to prevent re-runs
   const [newNoteText, setNewNoteText] = useState('');
@@ -72,13 +65,22 @@ export const AdminOrderDetailPage: React.FC = () => {
       </AdminLayout>
     );
   }
+  
+  // DEBUG: Log order delivery info
+  console.log('📋 Order delivery info:', {
+    address: order.address,
+    city: order.city,
+    county: order.county,
+    postalCode: order.postalCode,
+    deliveryMethod: order.deliveryMethod
+  });
 
   const handleSaveNotes = () => {
     updateOrderNotes(order.id, notes);
     alert('Notițele au fost salvate!');
   };
 
-  const handleOpenStatusModal = (status: OrderStatus) => {
+  const handleOpenStatusModal = async (status: OrderStatus) => {
     // Statuses that require a reason/note: 'queue', 'returned', 'closed'
     const requiresReason = status === 'queue' || status === 'returned' || status === 'closed';
     
@@ -89,11 +91,59 @@ export const AdminOrderDetailPage: React.FC = () => {
     } else {
       // Update directly for simple status changes (new, in-production, delivered)
       updateOrderStatus(order.id, status, '', currentUser?.fullName || 'Unknown');
+      
+      // If status is changing to "delivered", send shipped confirmation email
+      if (status === 'delivered') {
+        await sendShippedEmail();
+      }
     }
   };
-
-  const handleStatusChange = (reason: string) => {
+  
+  // Helper function to send shipped confirmation email
+  const sendShippedEmail = async () => {
+    try {
+      if (!order.clientEmail || !order.orderNumber) {
+        toast.error('Eroare: Date comandă incomplete');
+        return;
+      }
+      
+      const emailResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/email/send-shipped-confirmation`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${publicAnonKey}`,
+        },
+        body: JSON.stringify({
+          orderNumber: order.orderNumber,
+          customerName: order.clientName,
+          customerEmail: order.clientEmail,
+        }),
+      });
+      
+      const responseData = await emailResponse.json();
+      
+      if (!emailResponse.ok) {
+        throw new Error(responseData.error || 'Email sending failed');
+      }
+      
+      toast.success('Email de confirmare livrare trimis!');
+    } catch (error) {
+      console.error('Failed to send shipped confirmation email:', error);
+      toast.error(`Eroare la trimiterea emailului: ${error instanceof Error ? error.message : 'Eroare necunoscută'}`);
+    }
+  };
+  
+  // Handle status change with modal (for statuses that require a reason)
+  const handleStatusChange = async (reason: string) => {
+    // Update order status
     updateOrderStatus(order.id, newStatus, reason, currentUser?.fullName || 'Unknown');
+    
+    // If status is changing to "delivered", send shipped confirmation email
+    if (newStatus === 'delivered') {
+      await sendShippedEmail();
+    }
+    
+    // Close modal
     setShowStatusModal(false);
   };
 
@@ -158,7 +208,7 @@ export const AdminOrderDetailPage: React.FC = () => {
         
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl text-gray-900 mb-2">Comandă #{order.id.slice(-8)}</h1>
+            <h1 className="text-3xl text-gray-900 mb-2">Comandă #{order.orderNumber || order.id.slice(-8)}</h1>
             <p className="text-gray-600">
               Creată la {new Date(order.orderDate).toLocaleString('ro-RO')}
             </p>
@@ -781,11 +831,17 @@ export const AdminOrderDetailPage: React.FC = () => {
 
       {/* Status Change Modal */}
       {showStatusModal && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div 
+          className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowStatusModal(false);
+            }
+          }}
+        >
           <div 
             className="bg-white rounded-lg p-6 max-w-md w-full"
             onClick={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
           >
             <h3 className="text-xl text-gray-900 mb-4">Schimbă Status Comandă</h3>
             

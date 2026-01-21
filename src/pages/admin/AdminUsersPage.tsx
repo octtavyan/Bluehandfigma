@@ -9,46 +9,49 @@ export const AdminUsersPage: React.FC = () => {
   const { users, addUser, updateUser, deleteUser, currentUser } = useAdmin();
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
-  const [userForm, setUserForm] = useState<Partial<AdminUser>>({
+  const [formData, setFormData] = useState<Partial<AdminUser>>({
     username: '',
     password: '',
-    role: 'production',
+    role: 'account-manager',
     fullName: '',
     email: '',
+    isActive: true,
   });
 
   const handleAddUser = async () => {
-    if (!userForm.username || !userForm.password || !userForm.fullName || !userForm.email) {
+    if (!formData.username || !formData.password || !formData.fullName || !formData.email) {
       toast.error('Te rugăm să completezi toate câmpurile obligatorii');
       return;
     }
 
     // Validate email domain
-    if (!userForm.email.endsWith('@bluehand.ro')) {
+    if (!formData.email.endsWith('@bluehand.ro')) {
       toast.error('Emailul trebuie să fie de la domeniul @bluehand.ro');
       return;
     }
 
     addUser({
-      username: userForm.username,
-      password: userForm.password,
-      role: userForm.role as UserRole,
-      fullName: userForm.fullName,
-      email: userForm.email,
+      username: formData.username,
+      password: formData.password,
+      role: formData.role as UserRole,
+      fullName: formData.fullName,
+      email: formData.email,
+      isActive: formData.isActive,
     });
 
     setShowAddModal(false);
-    setUserForm({
+    setFormData({
       username: '',
       password: '',
-      role: 'production',
+      role: 'account-manager',
       fullName: '',
       email: '',
+      isActive: true,
     });
     toast.success('Utilizatorul a fost adăugat cu succes!');
   };
 
-  const sendPasswordVerificationEmail = async (userEmail: string, userName: string) => {
+  const sendVerificationEmail = async (email: string) => {
     try {
       const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/send-password-verification`, {
         method: 'POST',
@@ -57,8 +60,8 @@ export const AdminUsersPage: React.FC = () => {
           'Authorization': `Bearer ${publicAnonKey}`
         },
         body: JSON.stringify({
-          userEmail,
-          userName,
+          userEmail: email,
+          userName: formData.fullName || editingUser?.fullName || 'Utilizator',
           changedBy: currentUser?.fullName || 'Administrator'
         })
       });
@@ -85,44 +88,45 @@ export const AdminUsersPage: React.FC = () => {
   };
 
   const handleEditUser = async () => {
-    if (editingUser && userForm) {
-      console.log('🔄 Starting user update...', { editingUser, userForm });
+    if (editingUser && formData) {
+      console.log('🔄 Starting user update...', { editingUser, formData });
       
       // Validate required fields (password is optional when editing)
-      if (!userForm.fullName || !userForm.email || !userForm.username) {
+      if (!formData.fullName || !formData.email || !formData.username) {
         toast.error('Te rugăm să completezi toate câmpurile obligatorii');
         return;
       }
 
       // Validate email format (removed @bluehand.ro requirement for more flexibility)
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(userForm.email)) {
+      if (!emailRegex.test(formData.email)) {
         toast.error('Te rugăm să introduci un email valid');
         return;
       }
 
       // Check if password was changed
-      const passwordChanged = userForm.password && userForm.password !== editingUser.password;
+      const passwordChanged = formData.password && formData.password !== editingUser.password;
 
       // Prepare update data - only include password if it was changed
       const updateData: Partial<AdminUser> = {
-        username: userForm.username,
-        role: userForm.role,
-        fullName: userForm.fullName,
-        email: userForm.email,
+        username: formData.username,
+        role: formData.role,
+        fullName: formData.fullName,
+        email: formData.email,
+        isActive: formData.isActive,
       };
 
       // Only include password if it was changed
-      if (userForm.password && userForm.password.trim() !== '') {
-        updateData.password = userForm.password;
+      if (formData.password && formData.password.trim() !== '') {
+        updateData.password = formData.password;
       }
 
       console.log('✅ Updating user with data:', updateData);
       updateUser(editingUser.id, updateData);
 
       // Send verification email if password was changed
-      if (passwordChanged && userForm.email) {
-        const emailResult = await sendPasswordVerificationEmail(userForm.email, userForm.fullName || editingUser.fullName);
+      if (passwordChanged && formData.email) {
+        const emailResult = await sendVerificationEmail(formData.email);
         
         // Check if email was actually sent or skipped (testing mode)
         if (emailResult.success) {
@@ -141,12 +145,13 @@ export const AdminUsersPage: React.FC = () => {
       }
 
       setEditingUser(null);
-      setUserForm({
+      setFormData({
         username: '',
         password: '',
-        role: 'production',
+        role: 'account-manager',
         fullName: '',
         email: '',
+        isActive: true,
       });
     }
   };
@@ -165,12 +170,13 @@ export const AdminUsersPage: React.FC = () => {
 
   const openEditModal = (user: AdminUser) => {
     setEditingUser(user);
-    setUserForm({
+    setFormData({
       username: user.username,
       password: user.password,
       role: user.role,
       fullName: user.fullName,
       email: user.email,
+      isActive: user.isActive,
     });
   };
 
@@ -270,19 +276,39 @@ export const AdminUsersPage: React.FC = () => {
 
       {/* Add/Edit User Modal */}
       {(showAddModal || editingUser) && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto relative">
+        <div 
+          className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowAddModal(false);
+              setEditingUser(null);
+              setFormData({
+                username: '',
+                password: '',
+                fullName: '',
+                email: '',
+                role: 'account-manager',
+                isActive: true,
+              });
+            }
+          }}
+        >
+          <div 
+            className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto relative"
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* Close button */}
             <button
               onClick={() => {
                 setShowAddModal(false);
                 setEditingUser(null);
-                setUserForm({
+                setFormData({
                   username: '',
                   password: '',
-                  role: 'production',
+                  role: 'account-manager',
                   fullName: '',
                   email: '',
+                  isActive: true,
                 });
               }}
               className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
@@ -300,8 +326,8 @@ export const AdminUsersPage: React.FC = () => {
                 <label className="block text-sm text-gray-700 mb-2">Nume Complet *</label>
                 <input
                   type="text"
-                  value={userForm.fullName || ''}
-                  onChange={(e) => setUserForm({ ...userForm, fullName: e.target.value })}
+                  value={formData.fullName || ''}
+                  onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
                   className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-yellow-500 focus:outline-none"
                   placeholder="Ion Popescu"
                 />
@@ -311,8 +337,8 @@ export const AdminUsersPage: React.FC = () => {
                 <label className="block text-sm text-gray-700 mb-2">Email *</label>
                 <input
                   type="email"
-                  value={userForm.email || ''}
-                  onChange={(e) => setUserForm({ ...userForm, email: e.target.value })}
+                  value={formData.email || ''}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-yellow-500 focus:outline-none"
                   placeholder="ion@bluehand.ro"
                 />
@@ -322,8 +348,8 @@ export const AdminUsersPage: React.FC = () => {
                 <label className="block text-sm text-gray-700 mb-2">Nume Utilizator *</label>
                 <input
                   type="text"
-                  value={userForm.username || ''}
-                  onChange={(e) => setUserForm({ ...userForm, username: e.target.value })}
+                  value={formData.username || ''}
+                  onChange={(e) => setFormData({ ...formData, username: e.target.value })}
                   className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-yellow-500 focus:outline-none"
                   placeholder="ionpopescu"
                 />
@@ -335,8 +361,8 @@ export const AdminUsersPage: React.FC = () => {
                 </label>
                 <input
                   type="password"
-                  value={userForm.password || ''}
-                  onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
+                  value={formData.password || ''}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                   className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-yellow-500 focus:outline-none"
                   placeholder={editingUser ? 'Lasă gol pentru a păstra parola actuală' : '••••••••'}
                 />
@@ -350,8 +376,8 @@ export const AdminUsersPage: React.FC = () => {
               <div>
                 <label className="block text-sm text-gray-700 mb-2">Rol *</label>
                 <select
-                  value={userForm.role || 'production'}
-                  onChange={(e) => setUserForm({ ...userForm, role: e.target.value as UserRole })}
+                  value={formData.role || 'production'}
+                  onChange={(e) => setFormData({ ...formData, role: e.target.value as UserRole })}
                   className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-yellow-500 focus:outline-none"
                 >
                   <option value="full-admin">Administrator Complet</option>
@@ -359,7 +385,7 @@ export const AdminUsersPage: React.FC = () => {
                   <option value="production">Producție</option>
                 </select>
                 <p className="text-xs text-gray-600 mt-2">
-                  {getRoleDescription(userForm.role as UserRole)}
+                  {getRoleDescription(formData.role as UserRole)}
                 </p>
               </div>
             </div>
@@ -369,12 +395,13 @@ export const AdminUsersPage: React.FC = () => {
                 onClick={() => {
                   setShowAddModal(false);
                   setEditingUser(null);
-                  setUserForm({
+                  setFormData({
                     username: '',
                     password: '',
-                    role: 'production',
+                    role: 'account-manager',
                     fullName: '',
                     email: '',
+                    isActive: true,
                   });
                 }}
                 className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"

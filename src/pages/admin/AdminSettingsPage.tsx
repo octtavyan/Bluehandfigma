@@ -1,16 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { AdminLayout } from '../../components/admin/AdminLayout';
-import { Save, Eye, EyeOff, CreditCard, Shield, Globe, Plus, Pencil, Trash2, Tag, Mail, Package, Users as UsersIcon, Database, AlertCircle, UserPlus, Lock, Cloud } from 'lucide-react';
+import { Save, Eye, EyeOff, CreditCard, Shield, Globe, Mail, Users as UsersIcon, Database, Cloud } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
-import { useAdmin, AdminUser, UserRole } from '../../context/AdminContext';
 import { useSearchParams } from 'react-router';
 import { UserManagementTab } from '../../components/admin/UserManagementTab';
 import { EmailConfigTab } from '../../components/admin/EmailConfigTab';
 import { CloudinaryConfigTab } from '../../components/admin/CloudinaryConfigTab';
 import { DatabaseManagementTab } from '../../components/admin/DatabaseManagementTab';
-import { CategoriesStylesTab } from '../../components/admin/CategoriesStylesTab';
-import { cloudinaryService } from '../../services/cloudinaryService';
 
 interface NetopiaSettings {
   merchantId: string;
@@ -20,13 +17,12 @@ interface NetopiaSettings {
   publicKey: string;
 }
 
-type TabType = 'categories' | 'email' | 'users' | 'database' | 'netopia' | 'cloudinary';
+type TabType = 'email' | 'users' | 'database' | 'netopia' | 'cloudinary';
 
 export const AdminSettingsPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
-  const initialTab = (searchParams.get('tab') as TabType) || 'categories';
+  const initialTab = (searchParams.get('tab') as TabType) || 'email';
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
-  const { categories, subcategories, addCategory, updateCategory, deleteCategory } = useAdmin();
   
   // Netopia state
   const [loadingNetopia, setLoadingNetopia] = useState(false);
@@ -43,10 +39,6 @@ export const AdminSettingsPage: React.FC = () => {
   // Cloudinary state
   const [cloudinaryCloudName, setCloudinaryCloudName] = useState('');
   const [cloudinaryUploadPreset, setCloudinaryUploadPreset] = useState('');
-
-  // Category editing state
-  const [editingCategory, setEditingCategory] = useState<string | null>(null);
-  const [newCategoryName, setNewCategoryName] = useState('');
 
   useEffect(() => {
     if (activeTab === 'netopia') {
@@ -137,7 +129,6 @@ export const AdminSettingsPage: React.FC = () => {
   };
 
   const tabs = [
-    { id: 'categories' as const, label: 'Categorii & Stiluri', icon: Tag },
     { id: 'email' as const, label: 'Configurare Email', icon: Mail },
     { id: 'users' as const, label: 'Utilizatori', icon: UsersIcon },
     { id: 'database' as const, label: 'Database Management', icon: Database },
@@ -149,7 +140,7 @@ export const AdminSettingsPage: React.FC = () => {
     <AdminLayout>
       <div className="mb-8">
         <h1 className="text-3xl text-gray-900 mb-2">Setări</h1>
-        <p className="text-gray-600">Gestionează categoriile, stilurile și integrările</p>
+        <p className="text-gray-600">Gestionează integrările și configurările</p>
       </div>
 
       {/* Tabs */}
@@ -174,11 +165,6 @@ export const AdminSettingsPage: React.FC = () => {
           })}
         </div>
       </div>
-
-      {/* Categories & Styles Tab */}
-      {activeTab === 'categories' && (
-        <CategoriesStylesTab />
-      )}
 
       {/* Email Configuration Tab */}
       {activeTab === 'email' && (

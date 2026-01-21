@@ -12,10 +12,8 @@ export const AdminBlogPostsPage: React.FC = () => {
   // Force fresh data load on mount (clear cache)
   useEffect(() => {
     const loadFreshData = async () => {
-      console.log('🔄 AdminBlogPostsPage: Clearing blog posts cache and forcing fresh load...');
       CacheService.invalidate(CACHE_KEYS.BLOG_POSTS);
       await refreshData();
-      console.log('✅ AdminBlogPostsPage: Fresh blog posts loaded');
     };
     loadFreshData();
   }, []); // Run once on mount

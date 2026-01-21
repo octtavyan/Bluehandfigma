@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { Check, CreditCard, Truck, Loader2 } from 'lucide-react';
 import { useCart } from '../context/CartContext';
@@ -6,6 +6,7 @@ import { useAdmin } from '../context/AdminContext';
 import { toast } from 'sonner@2.0.3';
 import type { CanvasItemType } from '../context/AdminContext';
 import { romanianCounties } from '../data/romaniaData';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 type CheckoutStep = 'delivery' | 'details' | 'payment' | 'confirmation';
 
@@ -39,6 +40,7 @@ export const CheckoutPage = () => {
   const [availableCities, setAvailableCities] = useState<string[]>([]);
   const [showCustomCityInput, setShowCustomCityInput] = useState(false);
   const [customCity, setCustomCity] = useState('');
+  const [confirmedOrderNumber, setConfirmedOrderNumber] = useState<string>('');
   
   // Refs for scrolling to steps
   const paymentStepRef = useRef<HTMLDivElement>(null);
@@ -144,7 +146,7 @@ export const CheckoutPage = () => {
     if (!trimmedData.address) missingFields.push('Adresă');
     if (!trimmedData.city) missingFields.push('Oraș');
     if (!trimmedData.county) missingFields.push('Județ');
-    if (!trimmedData.postalCode) missingFields.push('Cod Poștal');
+    // Postal code is optional
 
     if (trimmedData.personType === 'juridica') {
       if (!trimmedData.companyName) missingFields.push('Numele Companiei');
@@ -212,23 +214,31 @@ export const CheckoutPage = () => {
         const totalItemPrice = itemPrice * item.quantity;
 
         if (item.customization) {
+          // Get size details for personalized items
+          const sizeData = sizes.find(s => s.id === item.customization.selectedSize);
+          const formattedSize = sizeData ? `${sizeData.width}×${sizeData.height} cm` : 'N/A';
+          
           return {
             type: 'personalized' as const,
             // Use storage URLs instead of base64 images
             originalImage: item.customization.originalImageUrl || '', // From Supabase Storage
             croppedImage: item.customization.croppedImageUrl || '', // From Supabase Storage
-            size: item.customization.selectedSize || 'N/A',
+            size: formattedSize,
             orientation: item.customization.orientation || 'portrait',
             price: totalItemPrice,
             hasCustomImage: true,
           };
         } else {
+          // Get size details for painting items
+          const sizeData = sizes.find(s => s.id === item.selectedDimension);
+          const formattedSize = sizeData ? `${sizeData.width}×${sizeData.height} cm` : 'N/A';
+          
           return {
             type: 'painting' as const,
             paintingId: item.product.id,
             paintingTitle: item.product.title,
             image: item.product.image,
-            size: item.selectedDimension || 'N/A',
+            size: formattedSize,
             quantity: item.quantity,
             price: totalItemPrice,
             printType: item.printType, // Include print type from cart
@@ -277,8 +287,8 @@ export const CheckoutPage = () => {
         setTimeout(() => reject(new Error('Order creation timeout - possible database issue')), 30000)
       );
 
-      const createdOrder = await Promise.race([orderPromise, timeoutPromise]);
-      console.log('✅ Order created successfully');
+      const orderNumber = await Promise.race([orderPromise, timeoutPromise]);
+      console.log('✅ Order created successfully:', orderNumber);
 
       // If payment method is CARD, initiate Netopia payment
       if (paymentMethod === 'card') {
@@ -293,7 +303,7 @@ export const CheckoutPage = () => {
                 'Content-Type': 'application/json',
               },
               body: JSON.stringify({
-                orderId: (createdOrder as any).id || Date.now().toString(),
+                orderId: orderNumber,
                 amount: totalPrice,
                 customerEmail: formData.email,
                 customerName: `${formData.firstName} ${formData.lastName}`,
@@ -325,15 +335,15 @@ export const CheckoutPage = () => {
       // For CASH payment, send confirmation email and show confirmation (existing flow)
       try {
         console.log('📧 Sending confirmation email...');
-        const orderNumber = Date.now().toString().slice(-8); // Generate simple order number
         
-        const emailPromise = fetch('https://bluehand.ro/api/index.php?action=send_order_confirmation', {
+        const emailPromise = fetch(`https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/email/send-order-confirmation`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'Authorization': `Bearer ${publicAnonKey}`,
           },
           body: JSON.stringify({
-            orderNumber,
+            orderNumber: orderNumber,
             customerName: `${formData.firstName} ${formData.lastName}`,
             customerEmail: formData.email,
             total: totalPrice,
@@ -366,6 +376,7 @@ export const CheckoutPage = () => {
       
       // Scroll to top to show confirmation message
       window.scrollTo({ top: 0, behavior: 'smooth' });
+      setConfirmedOrderNumber(orderNumber);
     } catch (error) {
       console.error('❌ Error placing order:', error);
       
@@ -396,7 +407,7 @@ export const CheckoutPage = () => {
             <Check className="w-10 h-10 text-green-600" />
           </div>
           <h1 className="text-gray-900 mb-4">Comanda Ta A Fost Plasată!</h1>
-          <p className="text-xl text-gray-600 mb-2">Număr comandă: #PZ{Date.now().toString().slice(-8)}</p>
+          <p className="text-xl text-gray-600 mb-2">Număr comandă: #{confirmedOrderNumber}</p>
           <p className="text-gray-600 mb-8">
             Vei primi un email de confirmare în câteva minute. Echipa noastră va procesa comanda
             ta și vei fi notificat când produsele sunt în curs de livrare.
@@ -821,14 +832,13 @@ export const CheckoutPage = () => {
                       </div>
                       <div>
                         <label className="block text-gray-700 mb-2">
-                          Cod Poștal <span className="text-red-500">*</span>
+                          Cod Poștal
                         </label>
                         <input
                           type="text"
                           name="postalCode"
                           value={formData.postalCode}
                           onChange={handleInputChange}
-                          required
                           className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500"
                         />
                       </div>

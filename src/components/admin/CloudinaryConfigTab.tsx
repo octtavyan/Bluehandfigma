@@ -133,7 +133,6 @@ export const CloudinaryConfigTab: React.FC = () => {
         description: 'Imaginea a fost încărcată pe Cloudinary',
         duration: 5000
       });
-      console.log('Test upload successful. URL:', uploadedUrl);
     } catch (error) {
       console.error('Error testing Cloudinary upload:', error);
       toast.error(error instanceof Error ? error.message : 'Eroare la testarea uploadului');

@@ -111,6 +111,7 @@ export type CanvasItemType = PersonalizedCanvasItem | PaintingCanvasItem;
 
 export interface OrderItem {
   id: string;
+  orderNumber?: string; // BHC-YYYYMMDD-XXXX format
   clientId: string;
   clientName: string;
   clientEmail: string;
@@ -270,7 +271,7 @@ interface AdminContextType {
   addBlogPost: (post: Omit<BlogPost, 'id' | 'createdAt' | 'updatedAt' | 'views'>) => Promise<void>;
   updateBlogPost: (postId: string, updates: Partial<BlogPost>) => Promise<void>;
   deleteBlogPost: (postId: string) => Promise<void>;
-  addOrder: (order: Omit<OrderItem, 'id' | 'orderDate' | 'status' | 'statusHistory'>, options?: { skipReload?: boolean }) => Promise<void>;
+  addOrder: (order: Omit<OrderItem, 'id' | 'orderDate' | 'status' | 'statusHistory'>, options?: { skipReload?: boolean }) => Promise<string>;
   updateOrderStatus: (orderId: string, newStatus: OrderStatus, reason?: string, changedBy?: string) => Promise<void>;
   deleteOrder: (orderId: string) => Promise<void>;
   updateClient: (clientId: string, updates: Partial<Client>) => Promise<void>;
@@ -441,6 +442,27 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }).catch(() => {});
     
     try {
+      // Helper function to add delay between requests to prevent overwhelming Supabase
+      const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+      // Helper function to retry failed requests with exponential backoff
+      const retryWithBackoff = async <T,>(
+        fn: () => Promise<T>,
+        retries = 3,
+        delayMs = 1000
+      ): Promise<T> => {
+        try {
+          return await fn();
+        } catch (error: any) {
+          if (retries === 0) {
+            console.error('All retries exhausted:', error?.message || error);
+            throw error;
+          }
+          await delay(delayMs);
+          return retryWithBackoff(fn, retries - 1, delayMs * 2);
+        }
+      };
+
       // Try cache first for each resource
       const cachedPaintings = CacheService.get<any[]>(CACHE_KEYS.PAINTINGS);
       const cachedClients = CacheService.get<any[]>(CACHE_KEYS.CLIENTS);
@@ -456,13 +478,10 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       let sizesData;
       if (cachedSizes) {
         sizesData = cachedSizes;
-        console.log('✅ Using cached sizes:', sizesData.length);
       } else {
-        console.log('📡 Fetching sizes from Supabase...');
-        sizesData = await canvasSizesService.getAll();
-        console.log('📡 Sizes fetched - count:', sizesData?.length || 0);
-        console.log('📡 Sizes data sample:', sizesData?.[0]);
+        sizesData = await retryWithBackoff(() => canvasSizesService.getAll());
         CacheService.set(CACHE_KEYS.SIZES, sizesData, CACHE_TTL.SIZES);
+        await delay(400); // Add delay after fetch to prevent overwhelming Supabase
       }
       const convertedSizes = sizesData.length > 0 ? sizesData.map(s => ({
         id: s.id,
@@ -475,7 +494,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         supportsPrintHartie: s.supportsPrintHartie ?? true,
         framePrices: s.framePrices || {}
       })) : [];
-      console.log('📏 Loaded sizes with discounts:', convertedSizes.map(s => ({ id: s.id, width: s.width, height: s.height, discount: s.discount, supportsPrintCanvas: s.supportsPrintCanvas, supportsPrintHartie: s.supportsPrintHartie, framePrices: s.framePrices })));
       
       // DEBUG: Check for duplicate sizes (same width/height but different IDs)
       const sizeMap = new Map();
@@ -489,7 +507,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       
       const duplicates = Array.from(sizeMap.entries()).filter(([key, ids]) => ids.length > 1);
       if (duplicates.length > 0) {
-        console.error('🔴 DUPLICATE SIZES FOUND IN DATABASE!', duplicates.map(([key, ids]) => ({ size: key, ids, count: ids.length })));
+        console.error('DUPLICATE SIZES FOUND IN DATABASE!', duplicates.map(([key, ids]) => ({ size: key, ids, count: ids.length })));
       }
       
       setSizes(convertedSizes);
@@ -499,11 +517,10 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const cachedFrameTypes = CacheService.get<any[]>(CACHE_KEYS.FRAME_TYPES);
       if (cachedFrameTypes) {
         frameTypesData = cachedFrameTypes;
-        console.log('✅ Using cached frame types');
       } else {
-        console.log('📡 Fetching frame types from Supabase...');
-        frameTypesData = await frameTypesService.getAll();
+        frameTypesData = await retryWithBackoff(() => frameTypesService.getAll());
         CacheService.set(CACHE_KEYS.FRAME_TYPES, frameTypesData, CACHE_TTL.FRAME_TYPES);
+        await delay(400);
       }
       const convertedFrameTypes = frameTypesData.length > 0 ? frameTypesData.map(f => ({
         id: f.id,
@@ -513,7 +530,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         isActive: f.isActive !== undefined ? f.isActive : true,
         order: f.order || 0
       })) : [];
-      console.log('🖼️ Loaded frame types:', convertedFrameTypes);
       setFrameTypes(convertedFrameTypes);
 
       // Load paintings (from cache or Supabase) - NOW sizes are available!
@@ -521,8 +537,9 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (cachedPaintings) {
         paintingsData = cachedPaintings;
       } else {
-        paintingsData = await paintingsService.getAll();
+        paintingsData = await retryWithBackoff(() => paintingsService.getAll());
         CacheService.set(CACHE_KEYS.PAINTINGS, paintingsData, CACHE_TTL.PAINTINGS);
+        await delay(400);
       }
       // Pass sizes to converter so it can match properly
       setPaintings(paintingsData.map(p => convertPaintingFromService(p, convertedSizes)));
@@ -532,8 +549,9 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (cachedClients) {
         clientsData = cachedClients;
       } else {
-        clientsData = await clientsService.getAll();
+        clientsData = await retryWithBackoff(() => clientsService.getAll());
         CacheService.set(CACHE_KEYS.CLIENTS, clientsData, CACHE_TTL.CLIENTS);
+        await delay(400);
       }
       const convertedClients = clientsData.map(c => ({
         id: c.id,
@@ -548,25 +566,23 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         totalOrders: c.totalOrders,
         totalSpent: c.totalSpent
       }));
-      console.log('✅ Converted clients:', convertedClients.length);
       setClients(convertedClients);
 
       // Load orders (from cache or Supabase)
       let ordersData;
       if (cachedOrders) {
         ordersData = cachedOrders;
-        console.log('✅ Using cached orders');
       } else {
-        console.log('📡 Fetching orders from Supabase...');
-        ordersData = await ordersService.getAll();
+        ordersData = await retryWithBackoff(() => ordersService.getAll());
         CacheService.set(CACHE_KEYS.ORDERS, ordersData, CACHE_TTL.ORDERS);
+        await delay(400);
       }
       
       const convertedOrders = ordersData.map(o => {
         // Find the matching client by email to get the correct clientId
         const matchingClient = convertedClients.find(c => c.email === o.customerEmail);
         
-        // Parse order notes from JSON if available
+        // Parse order notes from JSON if available (only in full mode)
         let orderNotes: OrderNote[] = [];
         if (o.notes) {
           try {
@@ -577,9 +593,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 createdAt: new Date(note.createdAt),
                 closedAt: note.closedAt ? new Date(note.closedAt) : undefined
               }));
-              if (orderNotes.length > 0) {
-                console.log(`📋 Order ${o.id.slice(-8)} loaded with ${orderNotes.length} notes from database`);
-              }
             }
           } catch (e) {
             // If parsing fails, it's likely legacy text notes - convert to new format
@@ -588,7 +601,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               orderNotes = [{
                 id: `legacy-${Date.now()}`,
                 text: o.notes,
-                createdAt: new Date(o.created_at || Date.now()),
+                createdAt: new Date(o.createdAt || Date.now()),
                 createdBy: 'System',
                 createdByRole: 'full-admin',
                 isRead: true, // Mark legacy notes as read
@@ -603,11 +616,12 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         
         return {
           id: o.id,
+          orderNumber: o.orderNumber, // BHC-YYYYMMDD-XXXX format
           clientId: matchingClient ? matchingClient.id : o.customerEmail, // Use client ID if found, otherwise use email as fallback
           clientName: o.customerName,
           clientEmail: o.customerEmail,
-          clientPhone: o.customerPhone,
-          address: o.deliveryAddress,
+          clientPhone: o.customerPhone || '', // May be empty in lightweight mode
+          address: o.deliveryAddress || '', // May be empty in lightweight mode
           city: o.deliveryCity || '',
           county: o.deliveryCounty || '',
           postalCode: o.deliveryPostalCode || '',
@@ -619,20 +633,20 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             changedBy: 'System',
             reason: 'Order created'
           }],
-          canvasItems: o.items && o.items.length > 0 ? o.items : (o.itemsCount ? new Array(o.itemsCount).fill({ type: 'placeholder' }) : []),
+          canvasItems: (o.items && Array.isArray(o.items) && o.items.length > 0) ? o.items : [], // Empty in lightweight mode
           totalPrice: o.total,
-          deliveryMethod: o.deliveryOption as any,
-          paymentMethod: o.paymentMethod as any,
-          paymentStatus: o.paymentStatus as any,
+          deliveryMethod: (o.deliveryOption || 'standard') as any,
+          paymentMethod: (o.paymentMethod || 'card') as any,
+          paymentStatus: (o.paymentStatus || 'unpaid') as any,
           notes: o.notes || '',
           orderNotes,
           personType: o.personType,
-          companyName: o.companyName,
-          cui: o.cui,
-          regCom: o.regCom,
-          companyCounty: o.companyCounty,
-          companyCity: o.companyCity,
-          companyAddress: o.companyAddress
+          companyName: o.companyName || '',
+          cui: o.cui || '',
+          regCom: o.regCom || '',
+          companyCounty: o.companyCounty || '',
+          companyCity: o.companyCity || '',
+          companyAddress: o.companyAddress || ''
         };
       });
       
@@ -664,20 +678,10 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           
           // Preserve existing order if it has detailed items OR more notes
           if (hasFullItems || hasMoreNotes) {
-            if (hasFullItems && hasMoreNotes) {
-              console.log(`🔄 Preserving detailed order ${newOrder.id.slice(-8)} with ${existingOrder.canvasItems.length} items and ${existingNotesCount} notes`);
-            } else if (hasFullItems) {
-              console.log(`🔄 Preserving order ${newOrder.id.slice(-8)} with full items`);
-            } else {
-              console.log(`🔄 Preserving order ${newOrder.id.slice(-8)} with ${existingNotesCount} notes (DB has ${newNotesCount})`);
-            }
             return existingOrder; // Keep the detailed version
           }
           
           // Otherwise use the new order from database (it might have been updated)
-          if (newNotesCount > 0) {
-            console.log(`✅ Updating order ${newOrder.id.slice(-8)} with ${newNotesCount} notes from database`);
-          }
           return newOrder;
         });
       });
@@ -686,11 +690,10 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       let blogPostsData;
       if (cachedBlogPosts) {
         blogPostsData = cachedBlogPosts;
-        console.log('✅ Using cached blog posts');
       } else {
-        console.log('📡 Fetching blog posts from Supabase...');
-        blogPostsData = await blogPostsService.getAll();
+        blogPostsData = await retryWithBackoff(() => blogPostsService.getAll());
         CacheService.set(CACHE_KEYS.BLOG_POSTS, blogPostsData, CACHE_TTL.BLOG_POSTS);
+        await delay(400);
       }
       setBlogPosts(blogPostsData);
 
@@ -698,32 +701,22 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       let heroSlidesData;
       if (cachedHeroSlides) {
         heroSlidesData = cachedHeroSlides;
-        console.log('✅ Using cached hero slides:', heroSlidesData.length);
       } else {
-        console.log('📡 Fetching hero slides from Supabase...');
-        heroSlidesData = await heroSlidesService.getAll();
-        console.log('📡 Hero slides fetched - count:', heroSlidesData?.length || 0);
-        console.log('📡 Hero slides data:', heroSlidesData);
+        heroSlidesData = await retryWithBackoff(() => heroSlidesService.getAll());
         CacheService.set(CACHE_KEYS.HERO_SLIDES, heroSlidesData, CACHE_TTL.HERO_SLIDES);
+        await delay(400);
       }
-      console.log('🎯 Setting hero slides in state:', heroSlidesData);
       setHeroSlides(heroSlidesData);
-      console.log('✅ Hero slides set in state');
 
       // Load admin users (from cache or Supabase)
-      console.log('📡 Loading admin users...');
       let usersData;
       if (cachedUsers) {
         usersData = cachedUsers;
-        console.log('✅ Using cached users:', usersData.length);
       } else {
-        console.log('📡 Fetching users from Supabase...');
-        usersData = await adminUsersService.getAll();
-        console.log('📡 Fetched users from Supabase:', usersData.length);
+        usersData = await retryWithBackoff(() => adminUsersService.getAll());
         
         // If no users exist, seed default users
         if (usersData.length === 0) {
-          console.log('🌱 No users found in database. Seeding default users...');
           const defaultUsers = [
             {
               username: 'admin',
@@ -752,15 +745,16 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           ];
           
           for (const userData of defaultUsers) {
-            const newUser = await adminUsersService.create(userData);
+            const newUser = await retryWithBackoff(() => adminUsersService.create(userData));
             if (newUser) {
               usersData.push(newUser);
-              console.log(`✅ Created default user: ${userData.username} (${userData.fullName})`);
             }
+            await delay(300); // Delay between user creation
           }
         }
         
         CacheService.set(CACHE_KEYS.USERS, usersData, CACHE_TTL.USERS);
+        await delay(400);
       }
       
       // Always set users from database (even if empty array)
@@ -773,7 +767,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         role: u.role as UserRole,
         isActive: u.isActive
       })));
-      console.log('✅ Users loaded:', usersData.length);
 
       // Sizes already loaded earlier (before paintings) - skip duplicate loading
 
@@ -784,8 +777,9 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         console.log('✅ Using cached categories');
       } else {
         console.log('📡 Fetching categories from Supabase...');
-        categoriesData = await categoriesService.getAll();
+        categoriesData = await retryWithBackoff(() => categoriesService.getAll());
         CacheService.set(CACHE_KEYS.CATEGORIES, categoriesData, CACHE_TTL.CATEGORIES);
+        await delay(400);
       }
       if (categoriesData.length > 0) {
         setCategories(categoriesData.map(c => ({
@@ -801,8 +795,9 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         console.log('✅ Using cached subcategories');
       } else {
         console.log('📡 Fetching subcategories from Supabase...');
-        subcategoriesData = await subcategoriesService.getAll();
+        subcategoriesData = await retryWithBackoff(() => subcategoriesService.getAll());
         CacheService.set(CACHE_KEYS.SUBCATEGORIES, subcategoriesData, CACHE_TTL.SUBCATEGORIES);
+        await delay(400);
       }
       if (subcategoriesData.length > 0) {
         setSubcategories(subcategoriesData.map(s => ({
@@ -810,18 +805,11 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           name: s.name
         })));
       }
-
-      console.log('✅ Data loaded from Supabase + Cache');
-      console.log('📊 Final State Summary:');
-      console.log('   - Hero Slides:', heroSlidesData?.length || 0);
-      console.log('   - Sizes:', convertedSizes?.length || 0);
-      console.log('   - Blog Posts:', blogPostsData?.length || 0);
-      console.log('   - Orders:', ordersData?.length || 0);
-      console.log('   - Clients:', convertedClients?.length || 0);
-      console.log('   - Users:', usersData?.length || 0);
     } catch (error) {
-      console.error('❌ Error loading data:', error);
-      console.error('❌ Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+      console.error('Error loading data:', error);
+      if (error instanceof Error) {
+        console.error('Stack trace:', error.stack);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -835,26 +823,19 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // ONE-TIME AUTOMATIC CLEANUP: Remove "Status updated" notes
   useEffect(() => {
     const cleanupStatusNotes = async () => {
-      console.log('🔍 Cleanup check starting...');
-      
       // Check if cleanup has already been done
       const cleanupDone = localStorage.getItem('status_notes_cleanup_done');
-      console.log('📍 Cleanup flag:', cleanupDone);
       
       if (cleanupDone === 'true') {
-        console.log('⏭️ Cleanup already done, skipping');
         return;
       }
 
       // Check if orders are loaded
-      console.log('📊 Orders loaded:', orders.length);
       if (orders.length === 0) {
-        console.log('⏳ No orders loaded yet, will retry...');
         return;
       }
 
       try {
-        console.log('🧹 Starting automatic cleanup of "Status updated" notes...');
         const supabaseClient = supabase;
         
         const { data: ordersData, error: fetchError } = await supabaseClient
@@ -866,8 +847,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           console.error('❌ Error fetching orders for cleanup:', fetchError);
           return;
         }
-
-        console.log(`📦 Fetched ${ordersData?.length || 0} orders with notes`);
 
         let totalRemoved = 0;
         const updates = [];
@@ -888,7 +867,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             const trimmedNotes = order.notes.trim();
             if (trimmedNotes === 'Status updated' || trimmedNotes === '') {
               // This is a plain text "Status updated" note - DELETE IT
-              console.log(`🔍 Order ${order.id.slice(-8)} has plain text status note to remove: "${trimmedNotes}"`);
               totalRemoved += 1;
               updates.push({
                 id: order.id,
@@ -896,7 +874,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               });
             } else {
               // It's a plain text note with actual content - keep it but convert to array format
-              console.log(`📝 Order ${order.id.slice(-8)} has plain text note to preserve: "${trimmedNotes.slice(0, 30)}..."`);
               orderNotes = [{
                 text: trimmedNotes,
                 timestamp: new Date().toISOString()
@@ -912,15 +889,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           if (orderNotes.length === 0) continue;
 
           // Log before filtering for debugging
-          const statusNotes = orderNotes.filter((note: any) => {
-            const text = note.text?.trim() || '';
-            return text === 'Status updated' || text === '';
-          });
-
-          if (statusNotes.length > 0) {
-            console.log(`🔍 Order ${order.id.slice(-8)} has ${statusNotes.length} status notes to remove (from array)`);
-          }
-
           const filteredNotes = orderNotes.filter((note: any) => {
             const text = note.text?.trim() || '';
             return text !== 'Status updated' && text !== '';
@@ -938,12 +906,10 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
 
         if (updates.length === 0) {
-          console.log('✅ No "Status updated" notes found to clean up');
           localStorage.setItem('status_notes_cleanup_done', 'true');
           return;
         }
 
-        console.log(`🧹 Cleaning ${updates.length} orders (removing ${totalRemoved} notes)...`);
         toast.info(`Curățare automată: Se șterg ${totalRemoved} notițe sistem...`);
 
         for (const update of updates) {
@@ -953,27 +919,22 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             .eq('id', update.id);
 
           if (updateError) {
-            console.error(`❌ Error updating order ${update.id}:`, updateError);
-          } else {
-            console.log(`✅ Updated order ${update.id.slice(-8)}`);
+            console.error(`Error updating order ${update.id}:`, updateError);
           }
         }
 
-        console.log(`✅ Automatically removed ${totalRemoved} "Status updated" notes from ${updates.length} orders!`);
         toast.success(`✅ ${totalRemoved} notițe sistem șterse automat!`);
         localStorage.setItem('status_notes_cleanup_done', 'true');
         
-        console.log('🔄 Reloading data...');
         await loadData();
       } catch (error) {
-        console.error('❌ Error during automatic cleanup:', error);
+        console.error('Error during automatic cleanup:', error);
         toast.error('Eroare la curățare automată');
       }
     };
 
     // Run cleanup after data loads
     if (currentUser && orders.length > 0) {
-      console.log('⏰ Scheduling cleanup in 3 seconds...');
       const timeoutId = setTimeout(() => {
         cleanupStatusNotes();
       }, 3000);
@@ -1047,8 +1008,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (!currentUser) return;
     
     try {
-      console.log('🔍 Checking for new orders...');
-      
       // Get the timestamp of the most recent order we have
       const mostRecentOrder = orders.length > 0 
         ? orders.reduce((latest, order) => 
@@ -1068,8 +1027,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       });
       
       if (newOrders.length > 0) {
-        console.log(`✨ Found ${newOrders.length} new order(s)`);
-        
         // Get current clients to match with new orders
         const currentClients = clients;
         
@@ -1146,8 +1103,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             firstOrder.totalPrice
           );
         }
-      } else {
-        console.log('✅ No new orders');
       }
     } catch (error) {
       console.error('Error checking for new orders:', error);
@@ -1157,8 +1112,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // Load full order details including items (called from order detail page)
   const loadOrderDetails = async (orderId: string) => {
     try {
-      console.log(`📡 Loading full details for order ${orderId}...`);
-      
       // Get the current order from state to preserve any recent updates
       const currentOrder = orders.find(o => o.id === orderId);
       
@@ -1211,11 +1164,10 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         ? currentOrder.orderNotes
         : orderNotesFromDB;
       
-      console.log(`📝 Notes comparison - State: ${currentOrder?.orderNotes?.length || 0}, DB: ${orderNotesFromDB.length}, Using: ${orderNotes.length}`);
-      
       // Convert to OrderItem format
       const convertedOrder: OrderItem = {
         id: fullOrder.id,
+        orderNumber: fullOrder.orderNumber, // BHC-YYYYMMDD-XXXX format
         clientId: matchingClient ? matchingClient.id : fullOrder.customerEmail,
         clientName: fullOrder.customerName,
         clientEmail: fullOrder.customerEmail,
@@ -1250,8 +1202,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       
       // Update the order in the orders array
       setOrders(prev => prev.map(o => o.id === orderId ? convertedOrder : o));
-      
-      console.log(`✅ Loaded full details for order ${orderId} with ${fullOrder.items?.length || 0} items and ${orderNotes.length} notes`);
     } catch (error) {
       console.error('Error loading order details:', error);
       toast.error('Eroare la încărcarea detaliilor comenzii');
@@ -1296,7 +1246,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setCurrentUser(null);
   };
 
-  const addOrder = async (orderData: Omit<OrderItem, 'id' | 'orderDate' | 'status' | 'statusHistory'>, options?: { skipReload?: boolean }) => {
+  const addOrder = async (orderData: Omit<OrderItem, 'id' | 'orderDate' | 'status' | 'statusHistory'>, options?: { skipReload?: boolean }): Promise<string> => {
     try {
       // Find or create client
       let client = await clientsService.getByEmail(orderData.clientEmail);
@@ -1327,10 +1277,9 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       // Cash on delivery will be unpaid until delivery
       const paymentStatus: 'paid' | 'unpaid' = orderData.paymentMethod === 'card' ? 'paid' : 'unpaid';
 
-      // Create order
-      const orderNumber = `ORD-${Date.now()}`;
-      await ordersService.create({
-        orderNumber,
+      // Create order - ordersService will generate the order number
+      const createdOrder = await ordersService.create({
+        orderNumber: '', // Will be generated by ordersService
         customerName: orderData.clientName,
         customerEmail: orderData.clientEmail,
         customerPhone: orderData.clientPhone,
@@ -1356,6 +1305,12 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         companyAddress: orderData.companyAddress,
       });
 
+      if (!createdOrder) {
+        throw new Error('Failed to create order');
+      }
+
+      const orderNumber = createdOrder.orderNumber;
+
       // Send browser notification if admin is logged in and has permission
       if (currentUser && notificationService.hasPermission()) {
         notificationService.showOrderNotification(orderNumber, orderData.clientName, orderData.totalPrice);
@@ -1369,7 +1324,9 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (!options?.skipReload) {
         await loadData();
       }
-      console.log('✅ Order created successfully');
+      
+      // Return the order number so checkout can use it for emails
+      return orderNumber;
     } catch (error) {
       console.error('Error creating order:', error);
       throw error;
@@ -1790,7 +1747,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     try {
       await clientsService.delete(clientId);
       setClients(prev => prev.filter(client => client.id !== clientId));
-      console.log('✅ Client deleted successfully');
     } catch (error) {
       console.error('Error deleting client:', error);
       throw error;
@@ -1803,7 +1759,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const created = await paintingsService.create(serviceData);
       setPaintings(prev => [convertPaintingFromService(created, sizes), ...prev]);
       CacheService.invalidate(CACHE_KEYS.PAINTINGS); // Invalidate cache
-      console.log('✅ Painting added successfully');
     } catch (error) {
       console.error('Error adding painting:', error);
       throw error;
@@ -1819,7 +1774,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         p.id === paintingId ? convertPaintingFromService(updated, sizes) : p
       ));
       CacheService.invalidate(CACHE_KEYS.PAINTINGS); // Invalidate cache
-      console.log('✅ Painting updated successfully');
     } catch (error) {
       console.error('Error updating painting:', error);
       throw error;
@@ -2236,7 +2190,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     try {
       const created = await blogPostsService.create(postData);
       setBlogPosts(prev => [created, ...prev]);
-      console.log('✅ Blog post added successfully');
       toast.success('Articolul a fost adăugat cu succes');
     } catch (error) {
       console.error('Error adding blog post:', error);

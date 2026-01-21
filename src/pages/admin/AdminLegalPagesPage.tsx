@@ -19,30 +19,46 @@ export const AdminLegalPagesPage: React.FC = () => {
   const loadContent = async () => {
     setIsLoading(true);
     try {
-      // Load from database
-      const termsResponse = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/kv/legal_pages_terms`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-          }
-        }
-      );
+      // Test health endpoint first
+      const healthUrl = `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/kv/health`;
       
-      const gdprResponse = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/kv/legal_pages_gdpr`,
-        {
+      try {
+        const healthResponse = await fetch(healthUrl, {
           headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
+            'Authorization': `Bearer ${publicAnonKey}`
           }
+        });
+        
+        const healthData = await healthResponse.json();
+      } catch (healthError) {
+        console.error('Health check error:', healthError);
+      }
+      
+      // Construct URLs
+      const termsUrl = `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/kv/get?key=legal_terms_and_conditions`;
+      const gdprUrl = `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/kv/get?key=legal_gdpr_policy`;
+      
+      // Load from database
+      const termsResponse = await fetch(termsUrl, {
+        headers: {
+          'Authorization': `Bearer ${publicAnonKey}`
         }
-      );
+      });
+      
+      const gdprResponse = await fetch(gdprUrl, {
+        headers: {
+          'Authorization': `Bearer ${publicAnonKey}`
+        }
+      });
 
       if (termsResponse.ok) {
         const termsData = await termsResponse.json();
         if (termsData.value) {
           setTermsContent(termsData.value);
         }
+      } else {
+        const errorText = await termsResponse.text();
+        console.error('Error loading terms:', termsResponse.status, errorText);
       }
 
       if (gdprResponse.ok) {
@@ -50,10 +66,17 @@ export const AdminLegalPagesPage: React.FC = () => {
         if (gdprData.value) {
           setGdprContent(gdprData.value);
         }
+      } else {
+        const errorText = await gdprResponse.text();
+        console.error('Error loading GDPR:', gdprResponse.status, errorText);
       }
     } catch (error) {
       console.error('Error loading legal pages:', error);
-      toast.error('Eroare la încărcarea conținutului');
+      if (error instanceof Error) {
+        console.error('Error stack:', error.stack);
+      }
+      // Don't show error toast on initial load if content is empty
+      // This is expected behavior when no content has been saved yet
     } finally {
       setIsLoading(false);
     }
@@ -62,7 +85,7 @@ export const AdminLegalPagesPage: React.FC = () => {
   const handleSaveTerms = async () => {
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/kv/legal_pages_terms`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/kv/set?key=legal_terms_and_conditions`,
         {
           method: 'POST',
           headers: {
@@ -87,7 +110,7 @@ export const AdminLegalPagesPage: React.FC = () => {
   const handleSaveGdpr = async () => {
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/kv/legal_pages_gdpr`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/kv/set?key=legal_gdpr_policy`,
         {
           method: 'POST',
           headers: {
@@ -116,7 +139,7 @@ export const AdminLegalPagesPage: React.FC = () => {
     
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/kv/legal_pages_terms`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/kv/delete?key=legal_terms_and_conditions`,
         {
           method: 'DELETE',
           headers: {
@@ -140,7 +163,7 @@ export const AdminLegalPagesPage: React.FC = () => {
     
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/kv/legal_pages_gdpr`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/kv/delete?key=legal_gdpr_policy`,
         {
           method: 'DELETE',
           headers: {

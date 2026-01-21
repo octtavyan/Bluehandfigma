@@ -95,8 +95,8 @@ export const PersonalizedCanvasPage: React.FC = () => {
     });
   };
 
-  const createOptimizedOriginal = (imageUrl: string): Promise<string> => {
-    return new Promise((resolve) => {
+  const createOptimizedOriginal = (imageUrl: string): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
@@ -119,8 +119,35 @@ export const PersonalizedCanvasPage: React.FC = () => {
         canvas.height = height;
         const ctx = canvas.getContext('2d');
         ctx?.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.92)); // High quality compression - excellent for printing
+        
+        // Convert to blob with quality optimization to stay under 10MB
+        let quality = 0.92;
+        const tryCompress = () => {
+          canvas.toBlob((blob) => {
+            if (!blob) {
+              reject(new Error('Failed to create blob'));
+              return;
+            }
+            
+            const sizeMB = blob.size / (1024 * 1024);
+            
+            // If under 10MB, we're good
+            if (sizeMB < 10) {
+              resolve(blob);
+            } else if (quality > 0.5) {
+              // Try again with lower quality
+              quality -= 0.1;
+              tryCompress();
+            } else {
+              // Even at 50% quality still too large, reject
+              reject(new Error('Image too large even after compression'));
+            }
+          }, 'image/jpeg', quality);
+        };
+        
+        tryCompress();
       };
+      img.onerror = () => reject(new Error('Failed to load image'));
       img.src = imageUrl;
     });
   };
@@ -145,22 +172,30 @@ export const PersonalizedCanvasPage: React.FC = () => {
       for (const file of Array.from(files)) {
         const uploadPromise = (async () => {
           try {
-            // Upload directly to Cloudinary
-            const cloudinaryUrl = await cloudinaryService.uploadImage(file, 'personalized-orders');
-            
-            // Create preview for display
+            // Read file as data URL
             const reader = new FileReader();
-            const previewPromise = new Promise<string>((resolve) => {
-              reader.onload = async (e) => {
+            const dataUrlPromise = new Promise<string>((resolve) => {
+              reader.onload = (e) => {
                 if (e.target?.result) {
-                  const previewImage = await createPreviewImage(e.target.result as string);
-                  resolve(previewImage);
+                  resolve(e.target.result as string);
                 }
               };
               reader.readAsDataURL(file);
             });
             
-            const previewImage = await previewPromise;
+            const dataUrl = await dataUrlPromise;
+            
+            // Optimize image to be under 10MB
+            const optimizedBlob = await createOptimizedOriginal(dataUrl);
+            
+            // Create a File object from the optimized blob
+            const optimizedFile = new File([optimizedBlob], file.name, { type: 'image/jpeg' });
+            
+            // Upload optimized image to Cloudinary
+            const cloudinaryUrl = await cloudinaryService.uploadImage(optimizedFile, 'personalized-orders');
+            
+            // Create preview for display (smaller thumbnail)
+            const previewImage = await createPreviewImage(dataUrl);
             
             // Use Cloudinary URL as the main image
             setUploadedImages(prev => [...prev, cloudinaryUrl]);
@@ -350,19 +385,36 @@ export const PersonalizedCanvasPage: React.FC = () => {
 
   const handleAddToCart = async (configs: ImageConfig[]) => {
     try {
+      setIsAddingToCart(true);
+
       // Show loading toast
-      const loadingToast = toast.loading('Se încarcă imaginile...', {
-        description: 'Salvăm fotografiile tale în siguranță'
+      const loadingToast = toast.loading('Se procesează imaginile...', {
+        description: 'Pregătim tablourile personalizate'
       });
 
-      // Upload all images to storage first
+      // Images are already uploaded to Cloudinary in Step 1
+      // Just need to upload the cropped versions
       const uploadPromises = configs.map(async (config, index) => {
-        const { originalUrl, croppedUrl } = await uploadPersonalizedImages(
-          uploadedImages[index],
-          config.croppedImage,
-          index
-        );
-        return { config, originalUrl, croppedUrl };
+        try {
+          // Convert cropped image data URL to blob
+          const response = await fetch(config.croppedImage);
+          const blob = await response.blob();
+          
+          // Create a File object from blob
+          const file = new File([blob], `cropped-image-${index}.jpg`, { type: 'image/jpeg' });
+          
+          // Upload cropped version to Cloudinary
+          const croppedUrl = await cloudinaryService.uploadImage(file, 'personalized-orders');
+          
+          return { 
+            config, 
+            originalUrl: uploadedImages[index], // Already uploaded in Step 1
+            croppedUrl // Newly uploaded cropped version
+          };
+        } catch (error) {
+          console.error(`❌ Error uploading cropped image ${index}:`, error);
+          throw error;
+        }
       });
 
       const uploadedData = await Promise.all(uploadPromises);
@@ -370,15 +422,15 @@ export const PersonalizedCanvasPage: React.FC = () => {
       // Dismiss loading toast
       toast.dismiss(loadingToast);
 
-      // Add all configured canvases to cart with storage URLs
+      // Add all configured canvases to cart with Cloudinary URLs
       uploadedData.forEach(({ config, originalUrl, croppedUrl }, index) => {
         const customization: PersonalizationData = {
           modelId: 'custom-canvas',
           modelTitle: 'Tablou Personalizat',
           uploadedImages: [], // Remove local base64 images
           croppedImage: '', // Remove local base64 preview
-          originalImageUrl: originalUrl, // Use storage URL
-          croppedImageUrl: croppedUrl, // Use storage URL
+          originalImageUrl: originalUrl, // Use Cloudinary URL from Step 1
+          croppedImageUrl: croppedUrl, // Use Cloudinary URL for cropped version
           selectedSize: config.selectedSize,
           price: availableSizes.find(size => size.size === config.selectedSize)?.price || 0,
           orientation: config.orientation,
@@ -399,13 +451,16 @@ export const PersonalizedCanvasPage: React.FC = () => {
         description: 'Tablourile personalizate au fost adăugate în coș'
       });
 
+      setIsAddingToCart(false);
+
       // Redirect to cart page (not checkout) so users can review their cart
       navigate('/cart');
     } catch (error) {
-      console.error('❌ Failed to upload images:', error);
-      toast.error('Eroare la încărcarea imaginilor', {
+      console.error('❌ Failed to process images:', error);
+      toast.error('Eroare la procesarea imaginilor', {
         description: 'Te rugăm să încerci din nou'
       });
+      setIsAddingToCart(false);
     }
   };
 

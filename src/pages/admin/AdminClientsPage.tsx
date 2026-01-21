@@ -16,14 +16,16 @@ export const AdminClientsPage: React.FC = () => {
   const [clientsToDelete, setClientsToDelete] = useState<Client[]>([]);
   const [clientsWithOrders, setClientsWithOrders] = useState<Map<string, number>>(new Map());
   const [deleteOrders, setDeleteOrders] = useState(false);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 15;
 
   // Force fresh client data load on mount (clear cache)
   useEffect(() => {
     const loadFreshClients = async () => {
-      console.log('🔄 AdminClientsPage: Clearing client cache and forcing fresh load...');
       CacheService.invalidate(CACHE_KEYS.CLIENTS);
       await refreshData();
-      console.log('✅ AdminClientsPage: Fresh client data loaded');
     };
     loadFreshClients();
   }, []); // Run once on mount
@@ -33,6 +35,22 @@ export const AdminClientsPage: React.FC = () => {
     client.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
     client.phone.includes(searchTerm)
   );
+
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredClients.length / ITEMS_PER_PAGE);
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const endIndex = startIndex + ITEMS_PER_PAGE;
+  const paginatedClients = filteredClients.slice(startIndex, endIndex);
+
+  // Reset to page 1 when search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const handleEditClick = (client: Client) => {
     setEditingClient(client);
@@ -162,11 +180,7 @@ export const AdminClientsPage: React.FC = () => {
                     <Edit2 className="w-4 h-4" />
                   </button>
                 </div>
-                <div className="grid grid-cols-3 gap-3 mb-3 text-xs">
-                  <div>
-                    <p className="text-gray-500 mb-1">Oraș</p>
-                    <p className="text-gray-900">{client.city}</p>
-                  </div>
+                <div className="grid grid-cols-2 gap-3 mb-3 text-xs">
                   <div>
                     <p className="text-gray-500 mb-1">Comenzi</p>
                     <p className="text-gray-900">{clientOrders.length}</p>
@@ -214,7 +228,6 @@ export const AdminClientsPage: React.FC = () => {
                 <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">Nume</th>
                 <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">Email</th>
                 <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">Telefon</th>
-                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">Oraș</th>
                 <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">Comenzi</th>
                 <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">Total Cheltuit</th>
                 <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">Înregistrat</th>
@@ -222,14 +235,14 @@ export const AdminClientsPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {filteredClients.length === 0 ? (
+              {paginatedClients.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan={8} className="px-6 py-8 text-center text-gray-500">
                     Nu s-au găsit clienți
                   </td>
                 </tr>
               ) : (
-                filteredClients.map((client) => {
+                paginatedClients.map((client) => {
                   const clientOrders = getClientOrders(client.id);
                   return (
                     <tr key={client.id} className="hover:bg-gray-50">
@@ -251,7 +264,6 @@ export const AdminClientsPage: React.FC = () => {
                       <td className="px-6 py-4 text-sm text-gray-900">{client.fullName}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{client.email}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{client.phone}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{client.city}</td>
                       <td className="px-6 py-4 text-sm text-gray-900">{clientOrders.length}</td>
                       <td className="px-6 py-4 text-sm text-gray-900">{client.totalSpent.toFixed(2)} lei</td>
                       <td className="px-6 py-4 text-sm text-gray-600">
@@ -281,12 +293,50 @@ export const AdminClientsPage: React.FC = () => {
             </tbody>
           </table>
         </div>
+        {/* Pagination */}
+        <div className="bg-gray-50 px-6 py-3 flex items-center justify-between">
+          <div className="text-sm text-gray-700">
+            Pagina {currentPage} din {totalPages}
+          </div>
+          <div className="space-x-2">
+            <button
+              onClick={() => handlePageChange(currentPage - 1)}
+              disabled={currentPage === 1}
+              className="px-3 py-1 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+            >
+              Înapoi
+            </button>
+            <button
+              onClick={() => handlePageChange(currentPage + 1)}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+            >
+              Înainte
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Edit Client Modal */}
       {editingClient && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div 
+          className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setEditingClient(null);
+              setEditForm({
+                fullName: '',
+                email: '',
+                phone: '',
+                address: '',
+              });
+            }
+          }}
+        >
+          <div 
+            className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
             <h3 className="text-xl text-gray-900 mb-6">Editează Client</h3>
             
             <div className="space-y-4 mb-6">

@@ -27,6 +27,9 @@ export const TablouriCanvasPage: React.FC = () => {
   // Random curated images for main section
   const [randomUnsplashImages, setRandomUnsplashImages] = useState<UnsplashImage[]>([]);
   const [isLoadingRandom, setIsLoadingRandom] = useState(true);
+  const [randomPage, setRandomPage] = useState(1);
+  const [hasMoreRandom, setHasMoreRandom] = useState(true);
+  const [isLoadingMoreRandom, setIsLoadingMoreRandom] = useState(false);
 
   // Check if we have a saved search state (when returning from product detail)
   useEffect(() => {
@@ -247,6 +250,82 @@ export const TablouriCanvasPage: React.FC = () => {
     }
   };
 
+  const loadMoreRandom = async () => {
+    if (!hasMoreRandom || isLoadingMoreRandom) return;
+
+    try {
+      setIsLoadingMoreRandom(true);
+      
+      const nextPage = randomPage + 1;
+      
+      // Load more based on whether we're searching or viewing curated
+      let newImages: UnsplashImage[] = [];
+      let hasMore = false;
+      
+      // Use hardcoded settings (no more Supabase calls)
+      const curatedQueries = ['nature', 'abstract', 'architecture', 'minimal', 'landscape'];
+      const imageCount = 24;
+      
+      // Shuffle queries to get variety
+      const shuffledQueries = [...curatedQueries].sort(() => Math.random() - 0.5);
+      
+      let queryIndex = 0;
+      
+      // Keep fetching from different queries until we have enough images
+      while (newImages.length < imageCount && queryIndex < shuffledQueries.length) {
+        const query = shuffledQueries[queryIndex];
+        const imagesNeeded = imageCount - newImages.length;
+        
+        try {
+          const result = await unsplashService.searchPhotos(query, nextPage, imagesNeeded);
+          
+          // Add new unique images (avoid duplicates by ID)
+          const existingIds = new Set(newImages.map(img => img.id));
+          const uniqueNewImages = result.results.filter(img => !existingIds.has(img.id));
+          newImages = [...newImages, ...uniqueNewImages];
+        } catch (error) {
+          console.error(`Error fetching images for query "${query}":`, error);
+        }
+        
+        queryIndex++;
+      }
+      
+      // If we still don't have enough images after trying all queries, try generic fallbacks
+      if (newImages.length < imageCount) {
+        const fallbackQueries = ['art', 'wallpaper', 'design', 'color', 'pattern'];
+        
+        for (const fallbackQuery of fallbackQueries) {
+          if (newImages.length >= imageCount) break;
+          
+          const imagesNeeded = imageCount - newImages.length;
+          try {
+            const result = await unsplashService.searchPhotos(fallbackQuery, nextPage, imagesNeeded);
+            const existingIds = new Set(newImages.map(img => img.id));
+            const uniqueNewImages = result.results.filter(img => !existingIds.has(img.id));
+            newImages = [...newImages, ...uniqueNewImages];
+          } catch (error) {
+            console.error(`Error fetching fallback images for "${fallbackQuery}":`, error);
+          }
+        }
+      }
+      
+      // Deduplicate images by ID
+      setRandomUnsplashImages((prev) => {
+        const existingIds = new Set(prev.map(img => img.id));
+        const uniqueNewImages = newImages.filter(img => !existingIds.has(img.id));
+        return [...prev, ...uniqueNewImages];
+      });
+      
+      setRandomPage(nextPage);
+      setHasMoreRandom(newImages.length === imageCount); // Assume more if we got a full page
+    } catch (error) {
+      console.error('Error loading more random Unsplash images:', error);
+      setUnsplashError('Eroare la încărcarea imaginilor suplimentare. Vă rugăm încercați din nou mai târziu.');
+    } finally {
+      setIsLoadingMoreRandom(false);
+    }
+  };
+
   // Filter paintings
   let filteredPaintings = paintings.filter(p => p.isActive);
   
@@ -301,8 +380,8 @@ export const TablouriCanvasPage: React.FC = () => {
         <div className="max-w-[1600px] mx-auto px-6">
           <div className="flex gap-8 items-start">
             {/* Filter Panel - Desktop Only */}
-            <aside className="hidden lg:block w-64 flex-shrink-0">
-              <div className="sticky top-24 space-y-6">
+            <aside className="hidden lg:block w-64 flex-shrink-0 self-start sticky top-24">
+              <div className="space-y-6 max-h-[calc(100vh-7rem)] overflow-y-auto pb-4">
                 {/* Unsplash Search Bar */}
                 <div className="bg-gradient-to-r from-gray-50 to-gray-100 p-4 rounded-lg border border-gray-200">
                   <h3 className="text-gray-900 mb-3 text-sm font-medium">Caută Imagini</h3>
@@ -624,7 +703,7 @@ export const TablouriCanvasPage: React.FC = () => {
                           <div className="animate-spin w-8 h-8 border-4 border-gray-200 border-t-[#86C2FF] rounded-full"></div>
                         </div>
                       ) : (
-                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6 mb-6">
                           {filteredRandomUnsplashImages.map((image) => (
                             <Link 
                               key={image.id} 
@@ -654,6 +733,19 @@ export const TablouriCanvasPage: React.FC = () => {
                               </p>
                             </Link>
                           ))}
+                        </div>
+                      )}
+                      
+                      {/* Load More Button for Random Images */}
+                      {!isLoadingRandom && hasMoreRandom && filteredRandomUnsplashImages.length > 0 && (
+                        <div className="text-center mb-8">
+                          <button
+                            onClick={loadMoreRandom}
+                            disabled={isLoadingMoreRandom}
+                            className="px-6 py-3 bg-[#7B93FF] text-white rounded-lg hover:bg-[#6A82EE] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {isLoadingMoreRandom ? 'Se încarcă...' : 'Încarcă Mai Multe'}
+                          </button>
                         </div>
                       )}
                       

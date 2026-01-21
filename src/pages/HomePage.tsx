@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router';
 import { ChevronLeft, ChevronRight, Image, Heart, Sparkles } from 'lucide-react';
-import { useAdmin } from '../context/AdminContext';
+import { useHeroSlides } from '../hooks/useHeroSlides';
 import { unsplashService, UnsplashImage } from '../services/unsplashService';
 
 export const HomePage: React.FC = () => {
-  const { heroSlides } = useAdmin();
+  // Use lightweight hook for immediate slider loading
+  const { heroSlides, isLoading: isSlidesLoading } = useHeroSlides();
   
   const sortedSlides = React.useMemo(() => {
     return [...heroSlides].sort((a, b) => a.order - b.order);
@@ -14,6 +15,32 @@ export const HomePage: React.FC = () => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [unsplashImages, setUnsplashImages] = useState<UnsplashImage[]>([]);
   const [isLoadingUnsplash, setIsLoadingUnsplash] = useState(true);
+  const [imagesPreloaded, setImagesPreloaded] = useState(false);
+
+  // Preload slider images as soon as they're available
+  useEffect(() => {
+    if (sortedSlides.length > 0 && !imagesPreloaded) {
+      
+      const preloadPromises = sortedSlides.map((slide) => {
+        return new Promise<HTMLImageElement>((resolve, reject) => {
+          const img = new Image();
+          img.src = slide.backgroundImage;
+          img.onload = () => {
+            resolve(img);
+          };
+          img.onerror = () => {
+            reject(new Error(`Failed to preload: ${slide.backgroundImage}`));
+          };
+        });
+      });
+
+      Promise.all(preloadPromises).then(() => {
+        setImagesPreloaded(true);
+      }).catch((error) => {
+        console.error('Error preloading images:', error);
+      });
+    }
+  }, [sortedSlides, imagesPreloaded]);
 
   // Auto-advance slides
   useEffect(() => {
@@ -33,76 +60,88 @@ export const HomePage: React.FC = () => {
   };
 
   // Fetch Unsplash images for landing page showcase
+  // Start loading immediately but don't block slider display
   useEffect(() => {
-    const fetchUnsplashImages = async () => {
-      try {
-        setIsLoadingUnsplash(true);
+    // Small delay to let sliders render first
+    const timeoutId = setTimeout(() => {
+      fetchUnsplashImages();
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
+  }, []);
+
+  const fetchUnsplashImages = async () => {
+    try {
+      setIsLoadingUnsplash(true);
+      
+      // Fetch Unsplash settings from Supabase
+      const { unsplashSettingsService } = await import('../lib/supabaseDataService');
+      const settings = await unsplashSettingsService.get();
+      
+      let curatedQueries = settings?.curatedQueries || ['nature', 'abstract', 'architecture', 'minimal', 'landscape'];
+      
+      // Shuffle queries to get variety
+      const shuffledQueries = [...curatedQueries].sort(() => Math.random() - 0.5);
+      
+      let allImages: any[] = [];
+      const targetImageCount = 8;
+      
+      // Fetch images from multiple keywords for variety (use up to 3 different keywords)
+      const keywordsToUse = Math.min(3, shuffledQueries.length);
+      const imagesPerKeyword = Math.ceil(targetImageCount / keywordsToUse);
+      
+      for (let i = 0; i < keywordsToUse; i++) {
+        const query = shuffledQueries[i];
         
-        // Fetch Unsplash settings from Supabase
-        const { unsplashSettingsService } = await import('../lib/supabaseDataService');
-        const settings = await unsplashSettingsService.get();
-        
-        let curatedQueries = settings?.curatedQueries || ['nature', 'abstract', 'architecture', 'minimal', 'landscape'];
-        
-        // Shuffle queries to get variety
-        const shuffledQueries = [...curatedQueries].sort(() => Math.random() - 0.5);
-        
-        let allImages: any[] = [];
-        const targetImageCount = 8;
-        
-        // Fetch images from multiple keywords for variety (use up to 3 different keywords)
-        const keywordsToUse = Math.min(3, shuffledQueries.length);
-        const imagesPerKeyword = Math.ceil(targetImageCount / keywordsToUse);
-        
-        for (let i = 0; i < keywordsToUse; i++) {
-          const query = shuffledQueries[i];
+        try {
+          const result = await unsplashService.searchPhotos(query, 1, imagesPerKeyword);
           
+          // Add new unique images (avoid duplicates by ID)
+          const existingIds = new Set(allImages.map(img => img.id));
+          const newImages = result.results.filter(img => !existingIds.has(img.id));
+          allImages = [...allImages, ...newImages];
+        } catch (error) {
+          console.error(`Error fetching images for query "${query}":`, error);
+        }
+        
+        // Stop if we have enough images
+        if (allImages.length >= targetImageCount) break;
+      }
+      
+      // If we still don't have enough images, try fallback queries
+      if (allImages.length < targetImageCount) {
+        const fallbackQueries = ['art', 'wallpaper', 'design'];
+        
+        for (const fallbackQuery of fallbackQueries) {
+          if (allImages.length >= targetImageCount) break;
+          
+          const imagesNeeded = targetImageCount - allImages.length;
           try {
-            const result = await unsplashService.searchPhotos(query, 1, imagesPerKeyword);
-            
-            // Add new unique images (avoid duplicates by ID)
+            const result = await unsplashService.searchPhotos(fallbackQuery, 1, imagesNeeded);
             const existingIds = new Set(allImages.map(img => img.id));
             const newImages = result.results.filter(img => !existingIds.has(img.id));
             allImages = [...allImages, ...newImages];
           } catch (error) {
-            console.error(`Error fetching images for query "${query}":`, error);
-          }
-          
-          // Stop if we have enough images
-          if (allImages.length >= targetImageCount) break;
-        }
-        
-        // If we still don't have enough images, try fallback queries
-        if (allImages.length < targetImageCount) {
-          const fallbackQueries = ['art', 'wallpaper', 'design'];
-          
-          for (const fallbackQuery of fallbackQueries) {
-            if (allImages.length >= targetImageCount) break;
-            
-            const imagesNeeded = targetImageCount - allImages.length;
-            try {
-              const result = await unsplashService.searchPhotos(fallbackQuery, 1, imagesNeeded);
-              const existingIds = new Set(allImages.map(img => img.id));
-              const newImages = result.results.filter(img => !existingIds.has(img.id));
-              allImages = [...allImages, ...newImages];
-            } catch (error) {
-              console.error(`Error fetching fallback images for "${fallbackQuery}":`, error);
-            }
+            console.error(`Error fetching fallback images for "${fallbackQuery}":`, error);
           }
         }
-        
-        // Shuffle the final collection for variety and take only 8
-        const shuffledImages = allImages.sort(() => Math.random() - 0.5).slice(0, targetImageCount);
-        setUnsplashImages(shuffledImages);
-      } catch (error) {
-        console.error('Error loading Unsplash images:', error);
-      } finally {
-        setIsLoadingUnsplash(false);
       }
-    };
+      
+      // Shuffle the final collection for variety and take only 8
+      const shuffledImages = allImages.sort(() => Math.random() - 0.5).slice(0, targetImageCount);
+      setUnsplashImages(shuffledImages);
 
-    fetchUnsplashImages();
-  }, []);
+      // Preload Unsplash images in the background (don't block UI)
+      shuffledImages.forEach((image) => {
+        const img = new window.Image();
+        img.src = image.urls.small;
+      });
+    } catch (error) {
+      console.error('Error loading Unsplash images:', error);
+    } finally {
+      setIsLoadingUnsplash(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-white">

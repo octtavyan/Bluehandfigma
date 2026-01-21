@@ -42,34 +42,7 @@ export const AdminSizesPage: React.FC = () => {
   };
 
   const handleOpenEditModal = (size: CanvasSize) => {
-    console.log('📝 [AdminSizesPage] Opening edit modal with size:', {
-      id: size.id,
-      dimensions: `${size.width}×${size.height}`,
-      supportsPrintCanvas: size.supportsPrintCanvas,
-      supportsPrintHartie: size.supportsPrintHartie,
-    });
-    
-    // Initialize frame prices for all frame types
-    const framePrices: Record<string, { price: number; discount: number; availableForCanvas: boolean; availableForPrint: boolean }> = {};
-    frameTypes.forEach(ft => {
-      const existingFramePrice = size.framePrices?.[ft.id];
-      framePrices[ft.id] = {
-        price: existingFramePrice?.price || 0,
-        discount: existingFramePrice?.discount || 0,
-        // Default to true if not set (backwards compatibility)
-        availableForCanvas: existingFramePrice?.availableForCanvas !== false,
-        availableForPrint: existingFramePrice?.availableForPrint !== false,
-      };
-    });
-    
-    setSizeForm({
-      ...size,
-      supportsPrintCanvas: size.supportsPrintCanvas !== false, // Default to true if not set
-      supportsPrintHartie: size.supportsPrintHartie !== false, // Default to true if not set
-      framePrices,
-    });
     setEditingSize(size);
-    setShowModal(true);
   };
 
   const handleSave = async () => {
