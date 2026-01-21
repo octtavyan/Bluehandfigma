@@ -1,13 +1,89 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router';
 import { Calendar, ArrowLeft } from 'lucide-react';
 import { useAdmin } from '../context/AdminContext';
 import { processBlogContentForDisplay } from '../utils/formatBlogContent';
+import { blogPostsService } from '../lib/supabaseDataService';
+import type { BlogPost } from '../context/AdminContext';
 
 export const BlogPostPage: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
   const { blogPosts, paintings } = useAdmin();
-  const post = blogPosts.find(p => p.slug === slug && p.isPublished);
+  const [post, setPost] = useState<BlogPost | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Load full blog post with content from database
+  useEffect(() => {
+    const loadFullPost = async () => {
+      if (!slug) {
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      console.log('🔄 Loading full blog post for slug:', slug);
+      
+      try {
+        const fullPost = await blogPostsService.getBySlug(slug);
+        
+        if (fullPost && fullPost.isPublished) {
+          console.log('✅ Blog post loaded:', { 
+            title: fullPost.title, 
+            contentLength: fullPost.content?.length || 0 
+          });
+          setPost(fullPost);
+        } else {
+          console.log('❌ Blog post not found or not published');
+          setPost(null);
+        }
+      } catch (error) {
+        console.error('❌ Error loading blog post:', error);
+        setPost(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadFullPost();
+  }, [slug]);
+
+  // Get related posts (other published posts excluding the current one)
+  // Must be defined before any conditional returns
+  const relatedPosts = useMemo(() => {
+    if (!post) return [];
+    return blogPosts
+      .filter(p => p.id !== post.id && p.isPublished)
+      .slice(0, 2);
+  }, [blogPosts, post]);
+
+  // Get random canvas paintings for recommendations (4 paintings)
+  // Must be defined before any conditional returns
+  const recommendedPaintings = useMemo(() => {
+    const activePaintings = paintings.filter(p => p.isActive);
+    const shuffled = [...activePaintings].sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, 4);
+  }, [paintings, slug]); // Re-randomize when slug changes (new article)
+
+  // Format the content - if already has HTML, use it, otherwise auto-format
+  // Must be defined before any conditional returns
+  const formattedContent = useMemo(() => {
+    if (!post || !post.content) return '';
+    return post.content.includes('<p>') || post.content.includes('<h2>') || post.content.includes('<h3>')
+      ? post.content // Already formatted with rich text editor
+      : processBlogContentForDisplay(post.content); // Legacy content - auto-format
+  }, [post]);
+
+  // NOW we can have conditional returns AFTER all hooks are defined
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#6994FF] mx-auto mb-4"></div>
+          <p className="text-gray-600">Se încarcă articolul...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!post) {
     return (
@@ -21,23 +97,6 @@ export const BlogPostPage: React.FC = () => {
       </div>
     );
   }
-
-  // Get related posts (other published posts excluding the current one)
-  const relatedPosts = blogPosts
-    .filter(p => p.id !== post.id && p.isPublished)
-    .slice(0, 2);
-
-  // Get random canvas paintings for recommendations (4 paintings)
-  const recommendedPaintings = useMemo(() => {
-    const activePaintings = paintings.filter(p => p.isActive);
-    const shuffled = [...activePaintings].sort(() => Math.random() - 0.5);
-    return shuffled.slice(0, 4);
-  }, [paintings, slug]); // Re-randomize when slug changes (new article)
-
-  // Format the content - if already has HTML, use it, otherwise auto-format
-  const formattedContent = post.content.includes('<p>') || post.content.includes('<h2>') || post.content.includes('<h3>')
-    ? post.content // Already formatted with rich text editor
-    : processBlogContentForDisplay(post.content); // Legacy content - auto-format
 
   return (
     <div className="min-h-screen bg-white">
@@ -81,17 +140,20 @@ export const BlogPostPage: React.FC = () => {
             {/* Main Content - formatted with better readability */}
             <div 
               className="text-gray-700 leading-relaxed space-y-6
-                [&>p]:mb-6 [&>p]:text-lg [&>p]:leading-relaxed
-                [&>h2]:text-2xl [&>h2]:text-gray-900 [&>h2]:mt-12 [&>h2]:mb-4
-                [&>h3]:text-xl [&>h3]:text-gray-900 [&>h3]:mt-8 [&>h3]:mb-3
-                [&>h4]:text-lg [&>h4]:text-gray-900 [&>h4]:mt-6 [&>h4]:mb-2
-                [&>ul]:list-disc [&>ul]:pl-6 [&>ul]:mb-6 [&>ul]:space-y-2
-                [&>ol]:list-decimal [&>ol]:pl-6 [&>ol]:mb-6 [&>ol]:space-y-2
-                [&>blockquote]:border-l-4 [&>blockquote]:border-[#6994FF] [&>blockquote]:pl-4 [&>blockquote]:italic [&>blockquote]:my-6
+                [&>p]:mb-6 [&>p]:text-lg [&>p]:leading-relaxed [&>p]:font-normal
+                [&>h2]:text-2xl [&>h2]:text-gray-900 [&>h2]:mt-12 [&>h2]:mb-4 [&>h2]:font-semibold
+                [&>h3]:text-xl [&>h3]:text-gray-900 [&>h3]:mt-8 [&>h3]:mb-3 [&>h3]:font-semibold
+                [&>h4]:text-lg [&>h4]:text-gray-900 [&>h4]:mt-6 [&>h4]:mb-2 [&>h4]:font-semibold
+                [&>ul]:list-disc [&>ul]:pl-6 [&>ul]:mb-6 [&>ul]:space-y-2 [&>ul]:text-base
+                [&>ol]:list-decimal [&>ol]:pl-6 [&>ol]:mb-6 [&>ol]:space-y-2 [&>ol]:text-base
+                [&>blockquote]:border-l-4 [&>blockquote]:border-[#6994FF] [&>blockquote]:pl-4 [&>blockquote]:italic [&>blockquote]:my-6 [&>blockquote]:text-gray-600
                 [&>img]:rounded-lg [&>img]:my-8 [&>img]:w-full
                 [&>a]:text-[#6994FF] [&>a]:underline [&>a]:hover:text-[#5078E6]
                 [&>strong]:font-semibold [&>strong]:text-gray-900
-                [&>em]:italic"
+                [&>em]:italic
+                [&_li]:text-base [&_li]:leading-relaxed
+                font-inter"
+              style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", sans-serif' }}
               dangerouslySetInnerHTML={{ __html: formattedContent }}
             />
           </div>

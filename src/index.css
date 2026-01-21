@@ -4410,6 +4410,16 @@
     }
   }
 
+  .\[\&_li\]\:text-base li {
+    font-size: var(--text-base);
+    line-height: var(--tw-leading, var(--text-base--line-height));
+  }
+
+  .\[\&_li\]\:leading-relaxed li {
+    --tw-leading: var(--leading-relaxed);
+    line-height: var(--leading-relaxed);
+  }
+
   .\[\&\>a\]\:text-\[\#6994FF\] > a {
     color: #6994ff;
   }
@@ -4443,6 +4453,10 @@
 
   .\[\&\>blockquote\]\:pl-4 > blockquote {
     padding-left: calc(var(--spacing) * 4);
+  }
+
+  .\[\&\>blockquote\]\:text-gray-600 > blockquote {
+    color: var(--color-gray-600);
   }
 
   .\[\&\>blockquote\]\:text-gray-700 > blockquote {
@@ -4583,6 +4597,11 @@
     padding-left: calc(var(--spacing) * 6);
   }
 
+  .\[\&\>ol\]\:text-base > ol {
+    font-size: var(--text-base);
+    line-height: var(--tw-leading, var(--text-base--line-height));
+  }
+
   .\[\&\>p\]\:mb-4 > p {
     margin-bottom: calc(var(--spacing) * 4);
   }
@@ -4599,6 +4618,11 @@
   .\[\&\>p\]\:leading-relaxed > p {
     --tw-leading: var(--leading-relaxed);
     line-height: var(--leading-relaxed);
+  }
+
+  .\[\&\>p\]\:font-normal > p {
+    --tw-font-weight: var(--font-weight-normal);
+    font-weight: var(--font-weight-normal);
   }
 
   .\[\&\>strong\]\:font-semibold > strong {
@@ -4636,6 +4660,11 @@
 
   .\[\&\>ul\]\:pl-6 > ul {
     padding-left: calc(var(--spacing) * 6);
+  }
+
+  .\[\&\>ul\]\:text-base > ul {
+    font-size: var(--text-base);
+    line-height: var(--tw-leading, var(--text-base--line-height));
   }
 }
 

@@ -42,7 +42,13 @@ export const CloudinaryConfigTab: React.FC = () => {
       if (response.ok) {
         const data = await response.json();
         if (data.settings) {
-          setSettings(data.settings);
+          // Ensure all fields have string values (never undefined)
+          setSettings({
+            cloudName: data.settings.cloudName || '',
+            uploadPreset: data.settings.uploadPreset || '',
+            apiKey: data.settings.apiKey || '',
+            isConfigured: data.settings.isConfigured || false,
+          });
         }
       }
     } catch (error) {

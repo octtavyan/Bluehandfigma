@@ -1346,6 +1346,38 @@ export const blogPostsService = {
     };
   },
 
+  async getById(id: string): Promise<BlogPost | null> {
+    const { data, error } = await supabase
+      .from('blog_posts')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      console.error('Error fetching blog post by ID:', error);
+      return null;
+    }
+
+    if (!data) return null;
+
+    // Map snake_case database fields to camelCase JavaScript fields
+    return {
+      id: data.id,
+      title: data.title || '',
+      slug: data.slug || '',
+      excerpt: data.excerpt || '',
+      content: data.content || '',
+      image: data.image || '',
+      category: data.category || '',
+      author: data.author || '',
+      publishDate: data.publish_date || data.publishDate || '',
+      isPublished: data.is_published !== undefined ? data.is_published : (data.isPublished || false),
+      views: data.views || 0,
+      createdAt: data.created_at || data.createdAt || '',
+      updatedAt: data.updated_at || data.updatedAt || ''
+    };
+  },
+
   async create(post: Omit<BlogPost, 'id' | 'createdAt' | 'updatedAt' | 'views'>): Promise<BlogPost | null> {
     const { data, error } = await supabase
       .from('blog_posts')
@@ -1408,6 +1440,8 @@ export const blogPostsService = {
     if (updates.publishDate !== undefined) dbUpdates.publish_date = updates.publishDate;
     if (updates.views !== undefined) dbUpdates.views = updates.views;
     
+    console.log('🔄 Updating blog post:', id, 'with:', dbUpdates);
+    
     const { data, error } = await supabase
       .from('blog_posts')
       .update(dbUpdates)
@@ -1420,7 +1454,26 @@ export const blogPostsService = {
       return null;
     }
 
-    return data;
+    if (!data) return null;
+
+    console.log('✅ Blog post updated successfully');
+
+    // Map snake_case database fields back to camelCase JavaScript fields
+    return {
+      id: data.id,
+      title: data.title || '',
+      slug: data.slug || '',
+      excerpt: data.excerpt || '',
+      content: data.content || '',
+      image: data.image || '',
+      category: data.category || '',
+      author: data.author || '',
+      publishDate: data.publish_date || data.publishDate || '',
+      isPublished: data.is_published !== undefined ? data.is_published : (data.isPublished || false),
+      views: data.views || 0,
+      createdAt: data.created_at || data.createdAt || '',
+      updatedAt: data.updated_at || data.updatedAt || ''
+    };
   },
 
   async delete(id: string): Promise<boolean> {

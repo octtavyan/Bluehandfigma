@@ -46,7 +46,13 @@ export const EmailConfigTab: React.FC = () => {
       if (response.ok) {
         const data = await response.json();
         if (data.settings) {
-          setSettings(data.settings);
+          // Ensure all fields have string values (never undefined)
+          setSettings({
+            apiKey: data.settings.apiKey || '',
+            fromEmail: data.settings.fromEmail || 'hello@bluehand.ro',
+            fromName: data.settings.fromName || 'BlueHand Canvas',
+            isConfigured: data.settings.isConfigured || false,
+          });
         }
       }
     } catch (error) {

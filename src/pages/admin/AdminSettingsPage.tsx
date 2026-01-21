@@ -62,7 +62,14 @@ export const AdminSettingsPage: React.FC = () => {
       if (response.ok) {
         const data = await response.json();
         if (data.settings) {
-          setNetopiaSettings(data.settings);
+          // Ensure all fields have string values (never undefined)
+          setNetopiaSettings({
+            merchantId: data.settings.merchantId || '',
+            apiKey: data.settings.apiKey || '',
+            isLive: data.settings.isLive || false,
+            posSignature: data.settings.posSignature || '',
+            publicKey: data.settings.publicKey || '',
+          });
         }
       }
     } catch (error) {

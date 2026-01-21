@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router';
-import { ChevronLeft, ChevronRight, Image, Heart, Sparkles } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Image as ImageIcon, Heart, Sparkles } from 'lucide-react';
 import { useHeroSlides } from '../hooks/useHeroSlides';
 import { unsplashService, UnsplashImage } from '../services/unsplashService';
 
@@ -238,7 +238,7 @@ export const HomePage: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             <div className="text-center">
               <div className="w-16 h-16 bg-[#6994FF] rounded-full flex items-center justify-center mx-auto mb-4">
-                <Image className="w-8 h-8 text-white" />
+                <ImageIcon className="w-8 h-8 text-white" />
               </div>
               <h3 className="text-lg md:text-xl text-gray-900 mb-2">Calitate Premium</h3>
               <p className="text-sm md:text-base text-gray-600">

@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { processBlogContentForDisplay } from '../../utils/formatBlogContent';
 import { RichTextEditor } from '../../components/admin/RichTextEditor';
 import { cloudinaryService } from '../../services/cloudinaryService';
+import { blogPostsService } from '../../lib/supabaseDataService';
 
 export const AdminBlogPostEditPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -14,6 +15,7 @@ export const AdminBlogPostEditPage: React.FC = () => {
   const { blogPosts, addBlogPost, updateBlogPost } = useAdmin();
   const [uploadingImage, setUploadingImage] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
     slug: '',
@@ -29,23 +31,46 @@ export const AdminBlogPostEditPage: React.FC = () => {
   const isEditing = !!id;
 
   useEffect(() => {
-    if (id) {
-      const post = blogPosts.find(p => p.id === id);
-      if (post) {
-        setFormData({
-          title: post.title,
-          slug: post.slug,
-          excerpt: post.excerpt,
-          content: post.content,
-          image: post.image,
-          category: post.category,
-          author: post.author,
-          publishDate: post.publishDate,
-          isPublished: post.isPublished,
-        });
+    const loadBlogPost = async () => {
+      if (id) {
+        setLoading(true);
+        try {
+          // Fetch full blog post with content from database
+          console.log('🔄 Loading full blog post with content for ID:', id);
+          const post = await blogPostsService.getById(id);
+          
+          if (post) {
+            console.log('✅ Blog post loaded:', { 
+              title: post.title, 
+              contentLength: post.content?.length || 0 
+            });
+            setFormData({
+              title: post.title,
+              slug: post.slug,
+              excerpt: post.excerpt,
+              content: post.content,
+              image: post.image,
+              category: post.category,
+              author: post.author,
+              publishDate: post.publishDate,
+              isPublished: post.isPublished,
+            });
+          } else {
+            console.error('❌ Blog post not found with ID:', id);
+            toast.error('Articolul nu a fost găsit');
+            navigate('/admin/blog-posts');
+          }
+        } catch (error) {
+          console.error('❌ Error loading blog post:', error);
+          toast.error('Eroare la încărcarea articolului');
+        } finally {
+          setLoading(false);
+        }
       }
-    }
-  }, [id, blogPosts]);
+    };
+
+    loadBlogPost();
+  }, [id, navigate]);
 
   const generateSlug = (title: string) => {
     return title
