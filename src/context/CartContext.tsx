@@ -30,7 +30,7 @@ interface FrameTypeData {
 
 interface CartContextType {
   cart: CartItem[];
-  addToCart: (product: any, quantity?: number, selectedDimension?: string, printType?: 'Print Canvas' | 'Print Hartie', frameType?: string, customization?: PersonalizationData) => void;
+  addToCart: (product: any, quantity?: number, selectedDimension?: string, printType?: 'Print Canvas' | 'Print Hartie', frameType?: string, customization?: PersonalizationData, silent?: boolean) => void;
   removeFromCart: (id: string) => void;
   updateQuantity: (id: string, quantity: number) => void;
   clearCart: () => void;
@@ -188,7 +188,8 @@ export const CartProvider: React.FC<{ children: ReactNode; sizes?: SizeData[]; f
     selectedDimension?: string,
     printType?: 'Print Canvas' | 'Print Hartie',
     frameType?: string,
-    customization?: PersonalizationData
+    customization?: PersonalizationData,
+    silent?: boolean
   ) => {
     try {
       // Validate inputs
@@ -213,7 +214,9 @@ export const CartProvider: React.FC<{ children: ReactNode; sizes?: SizeData[]; f
             frameType,
             customization,
           };
-          toast.success('Produs adăugat în coș!');
+          if (!silent) {
+            toast.success('Produs adăugat în coș!');
+          }
           trackAddToCartFromProduct(product, quantity, selectedDimension, printType, frameType, customization);
           return [...prevCart, newItem];
         }
@@ -229,7 +232,9 @@ export const CartProvider: React.FC<{ children: ReactNode; sizes?: SizeData[]; f
         );
 
         if (existingItem) {
-          toast.success('Cantitate actualizată în coș!');
+          if (!silent) {
+            toast.success('Cantitate actualizată în coș!');
+          }
           return prevCart.map(item =>
             item.id === existingItem.id
               ? { ...item, quantity: item.quantity + quantity }
@@ -237,7 +242,9 @@ export const CartProvider: React.FC<{ children: ReactNode; sizes?: SizeData[]; f
           );
         }
 
-        toast.success('Produs adăugat în coș!');
+        if (!silent) {
+          toast.success('Produs adăugat în coș!');
+        }
         trackAddToCartFromProduct(product, quantity, selectedDimension, printType, frameType, customization);
         return [
           ...prevCart,

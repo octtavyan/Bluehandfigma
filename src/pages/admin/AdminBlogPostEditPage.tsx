@@ -36,14 +36,9 @@ export const AdminBlogPostEditPage: React.FC = () => {
         setLoading(true);
         try {
           // Fetch full blog post with content from database
-          console.log('🔄 Loading full blog post with content for ID:', id);
           const post = await blogPostsService.getById(id);
           
           if (post) {
-            console.log('✅ Blog post loaded:', { 
-              title: post.title, 
-              contentLength: post.content?.length || 0 
-            });
             setFormData({
               title: post.title,
               slug: post.slug,

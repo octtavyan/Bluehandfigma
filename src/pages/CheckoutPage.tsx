@@ -215,8 +215,10 @@ export const CheckoutPage = () => {
 
         if (item.customization) {
           // Get size details for personalized items
-          const sizeData = sizes.find(s => s.id === item.customization.selectedSize);
-          const formattedSize = sizeData ? `${sizeData.width}×${sizeData.height} cm` : 'N/A';
+          // The selectedSize in customization is stored as a formatted string like "30×40 cm"
+          // We need to find the matching size by comparing the formatted string
+          const sizeData = sizes.find(s => `${s.width}×${s.height} cm` === item.customization.selectedSize);
+          const formattedSize = sizeData ? `${sizeData.width}×${sizeData.height} cm` : item.customization.selectedSize || 'N/A';
           
           return {
             type: 'personalized' as const,
@@ -250,15 +252,123 @@ export const CheckoutPage = () => {
       const deliveryPrice = deliveryOption === 'express' ? 25 : 0;
       const totalPrice = getCartTotal() + deliveryPrice;
 
-      console.log('📦 Creating order with data:', {
-        clientName: `${formData.firstName} ${formData.lastName}`,
-        clientEmail: formData.email,
-        totalPrice,
-        itemsCount: canvasItems.length,
-        paymentMethod
-      });
+      // If payment method is CARD, try to initiate payment FIRST before creating order
+      if (paymentMethod === 'card') {
+        try {
+          console.log('💳 Initiating Netopia payment...');
+          console.log('📝 Payment details:', {
+            amount: totalPrice,
+            customerEmail: formData.email,
+            customerName: `${formData.firstName} ${formData.lastName}`,
+          });
 
-      // Create order with timeout protection
+          // For card payment, we need to create a temporary order ID
+          // Generate a unique order number for payment
+          const tempOrderNumber = `BHC-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-TEMP-${Date.now().toString().slice(-4)}`;
+
+          const paymentResponse = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/netopia/start-payment`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${publicAnonKey}`,
+              },
+              body: JSON.stringify({
+                orderId: tempOrderNumber,
+                amount: totalPrice,
+                customerEmail: formData.email,
+                customerName: `${formData.firstName} ${formData.lastName}`,
+                returnUrl: `${window.location.origin}/payment-success`,
+                // Include all order data for later creation after payment success
+                orderData: {
+                  clientName: `${formData.firstName} ${formData.lastName}`,
+                  clientEmail: formData.email,
+                  clientPhone: formData.phone,
+                  address: formData.address,
+                  city: formData.city,
+                  county: formData.county,
+                  postalCode: formData.postalCode,
+                  canvasItems,
+                  totalPrice,
+                  deliveryMethod: deliveryOption,
+                  paymentMethod: 'card',
+                  personType: formData.personType,
+                  companyName: formData.companyName,
+                  cui: formData.cui,
+                  regCom: formData.regCom,
+                  companyCounty: formData.companyCounty,
+                  companyCity: formData.companyCity,
+                  companyAddress: formData.companyAddress,
+                }
+              }),
+            }
+          );
+
+          console.log('📥 Payment response status:', paymentResponse.status);
+          
+          if (!paymentResponse.ok) {
+            const errorText = await paymentResponse.text();
+            console.error('❌ HTTP Error Response:', errorText);
+            throw new Error(`HTTP ${paymentResponse.status}: ${errorText}`);
+          }
+
+          const paymentData = await paymentResponse.json();
+          console.log('📥 Payment response data:', paymentData);
+
+          if (paymentData.success && paymentData.redirectUrl) {
+            console.log('✅ Payment initialized successfully, redirecting to Netopia...');
+            console.log('🔗 Redirect URL:', paymentData.redirectUrl);
+            
+            // Save order data to sessionStorage so we can create it after payment success
+            sessionStorage.setItem('pendingOrderData', JSON.stringify({
+              clientName: `${formData.firstName} ${formData.lastName}`,
+              clientEmail: formData.email,
+              clientPhone: formData.phone,
+              address: formData.address,
+              city: formData.city,
+              county: formData.county,
+              postalCode: formData.postalCode,
+              canvasItems,
+              totalPrice,
+              deliveryMethod: deliveryOption,
+              paymentMethod: 'card',
+              personType: formData.personType,
+              companyName: formData.companyName,
+              cui: formData.cui,
+              regCom: formData.regCom,
+              companyCounty: formData.companyCounty,
+              companyCity: formData.companyCity,
+              companyAddress: formData.companyAddress,
+            }));
+            
+            // Clear cart before redirect (will be restored if payment fails)
+            clearCart();
+            
+            // Redirect to Netopia payment page
+            window.location.href = paymentData.redirectUrl;
+            
+            return; // Don't continue to confirmation step
+          } else {
+            console.error('❌ Payment initialization failed:', paymentData.error || 'Unknown error');
+            throw new Error(paymentData.error || 'Failed to initialize payment');
+          }
+        } catch (paymentError) {
+          console.error('❌ Payment initialization error:', paymentError);
+          const errorMessage = paymentError instanceof Error ? paymentError.message : 'Unknown error';
+          
+          // FALLBACK: Switch to cash on delivery if card payment fails
+          console.log('⚠️ Card payment failed, falling back to cash on delivery...');
+          toast.error('Plata cu cardul nu este disponibilă momentan. Comanda va fi procesată cu plată la livrare.');
+          
+          // Update payment method to cash
+          setPaymentMethod('cash');
+          
+          // Continue with cash payment flow below (don't return)
+        }
+      }
+
+      // Create order (for CASH payment OR card payment fallback)
       const orderPromise = addOrder({
         clientId: '', // Will be set by addOrder function
         clientName: `${formData.firstName} ${formData.lastName}`,
@@ -271,8 +381,8 @@ export const CheckoutPage = () => {
         canvasItems,
         totalPrice,
         deliveryMethod: deliveryOption,
-        paymentMethod,
-        notes: '',
+        paymentMethod: paymentMethod === 'card' ? 'cash' : paymentMethod, // Use cash if card failed
+        notes: paymentMethod === 'card' ? 'Payment originally attempted with card but failed - switched to cash on delivery' : '',
         personType: formData.personType,
         companyName: formData.companyName,
         cui: formData.cui,
@@ -288,54 +398,9 @@ export const CheckoutPage = () => {
       );
 
       const orderNumber = await Promise.race([orderPromise, timeoutPromise]);
-      console.log('✅ Order created successfully:', orderNumber);
-
-      // If payment method is CARD, initiate Netopia payment
-      if (paymentMethod === 'card') {
-        console.log('💳 Initiating Netopia payment...');
-        
-        try {
-          const paymentResponse = await fetch(
-            'https://bluehand.ro/api/index.php?action=netopia_start_payment',
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                orderId: orderNumber,
-                amount: totalPrice,
-                customerEmail: formData.email,
-                customerName: `${formData.firstName} ${formData.lastName}`,
-                returnUrl: window.location.origin,
-              }),
-            }
-          );
-
-          const paymentData = await paymentResponse.json();
-
-          if (paymentData.success && paymentData.paymentUrl) {
-            console.log('✅ Payment URL received, redirecting...');
-            // Clear cart before redirect
-            clearCart();
-            // Redirect to Netopia payment page
-            window.location.href = paymentData.paymentUrl;
-            return; // Don't continue to confirmation step
-          } else {
-            throw new Error('Failed to initialize payment');
-          }
-        } catch (paymentError) {
-          console.error('❌ Payment initialization error:', paymentError);
-          alert('Eroare la inițializarea plății. Te rugăm să ne contactezi la hello@bluehand.ro pentru a finaliza comanda.');
-          setIsSubmitting(false);
-          return;
-        }
-      }
 
       // For CASH payment, send confirmation email and show confirmation (existing flow)
       try {
-        console.log('📧 Sending confirmation email...');
-        
         const emailPromise = fetch(`https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/email/send-order-confirmation`, {
           method: 'POST',
           headers: {
@@ -364,13 +429,11 @@ export const CheckoutPage = () => {
         );
 
         await Promise.race([emailPromise, emailTimeoutPromise]);
-        console.log('✅ Order confirmation email sent to customer');
       } catch (emailError) {
         console.error('⚠️ Failed to send confirmation email (non-critical):', emailError);
         // Don't block order completion if email fails
       }
 
-      console.log('🎉 Order placement complete - showing confirmation');
       setCurrentStep('confirmation');
       clearCart();
       
@@ -395,7 +458,6 @@ export const CheckoutPage = () => {
       }
     } finally {
       setIsSubmitting(false);
-      console.log('🏁 Order placement process finished');
     }
   };
 

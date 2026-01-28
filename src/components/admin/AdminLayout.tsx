@@ -144,21 +144,6 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
         </nav>
 
         <div className="p-4 border-t border-gray-700 flex-shrink-0 space-y-2">
-          {/* Database Check Button - Only for full-admin */}
-          {currentUser?.role === 'full-admin' && (
-            <button
-              onClick={() => handleNavClick('/admin/database-check')}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
-                location.pathname === '/admin/database-check'
-                  ? 'bg-amber-600 text-white'
-                  : 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 border border-amber-500/50'
-              }`}
-            >
-              <AlertCircle className="w-5 h-5" />
-              <span>Database Check</span>
-            </button>
-          )}
-          
           <button
             onClick={handleLogout}
             className="w-full flex items-center space-x-3 px-4 py-3 text-gray-300 hover:bg-gray-800 rounded-lg transition-colors"

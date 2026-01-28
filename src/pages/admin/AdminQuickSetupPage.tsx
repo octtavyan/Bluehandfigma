@@ -225,7 +225,6 @@ export const AdminQuickSetupPage: React.FC = () => {
 
       if (error) {
         // Try direct insert approach for simple tables
-        console.log('RPC failed, trying direct creation...');
         throw error;
       }
 

@@ -65,15 +65,6 @@ export const AdminOrderDetailPage: React.FC = () => {
       </AdminLayout>
     );
   }
-  
-  // DEBUG: Log order delivery info
-  console.log('📋 Order delivery info:', {
-    address: order.address,
-    city: order.city,
-    county: order.county,
-    postalCode: order.postalCode,
-    deliveryMethod: order.deliveryMethod
-  });
 
   const handleSaveNotes = () => {
     updateOrderNotes(order.id, notes);
@@ -385,11 +376,41 @@ export const AdminOrderDetailPage: React.FC = () => {
           <span>Produse Comandate ({order.canvasItems.length})</span>
         </h3>
         
+        {/* Debug log for sizes */}
+        {console.log('🔍 Sizes loaded:', sizes.length, 'sizes')}
+        {console.log('🔍 First size:', sizes[0])}
+        {console.log('🔍 Order items:', order.canvasItems)}
+        
+        {/* Show loading state while details are being fetched */}
+        {!detailsLoaded && order.canvasItems.length > 0 && order.canvasItems[0]?.type === 'placeholder' && (
+          <div className="text-center py-8">
+            <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-gray-200 border-t-yellow-500 mb-2"></div>
+            <p className="text-sm text-gray-600">Se încarcă detaliile produselor...</p>
+          </div>
+        )}
+        
         {/* Card View for Products - No horizontal scroll */}
-        <div className="space-y-4">
-          {order.canvasItems.filter(item => item.type !== 'placeholder').map((item, index) => {
+        <div className="space-y-4">{order.canvasItems.filter(item => item.type !== 'placeholder').map((item, index) => {
             if (item.type === 'personalized') {
               // Personalized Canvas Card
+              const sizeData = sizes.find(s => s.id === item.size);
+              
+              // Calculate frame price if frame is selected
+              let framePrice = 0;
+              if (item.frameType && sizeData?.framePrices && item.frameType in sizeData.framePrices) {
+                const framePriceData = sizeData.framePrices[item.frameType];
+                framePrice = framePriceData.discount > 0 
+                  ? framePriceData.price * (1 - framePriceData.discount / 100)
+                  : framePriceData.price;
+              }
+              
+              // Check if frame is "Fara Rama" to hide the frame tile
+              const frameTypeData = item.frameType ? getFrameTypeById(item.frameType) : null;
+              const hasActualFrame = frameTypeData && frameTypeData.name !== 'Fara Rama';
+              
+              // Calculate base price (without frame)
+              const basePrice = item.price - framePrice;
+              
               return (
                 <div key={index} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
                   <div className="flex flex-col sm:flex-row gap-4">
@@ -410,7 +431,13 @@ export const AdminOrderDetailPage: React.FC = () => {
                           <p className="text-xs text-[#86C2FF]">Personalizat • Previzualizare Cropping</p>
                         </div>
                         <div className="flex-shrink-0">
-                          <p className="text-lg text-gray-900">{item.price.toFixed(2)} lei</p>
+                          {hasActualFrame && framePrice > 0 ? (
+                            <p className="text-lg text-gray-900">
+                              {basePrice.toFixed(2)} + {framePrice.toFixed(2)} lei
+                            </p>
+                          ) : (
+                            <p className="text-lg text-gray-900">{item.price.toFixed(2)} lei</p>
+                          )}
                         </div>
                       </div>
                       
@@ -420,19 +447,43 @@ export const AdminOrderDetailPage: React.FC = () => {
                         <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
                           <div className="flex items-center space-x-2 mb-2">
                             <FileText className="w-4 h-4 text-purple-600" />
-                            <span className="text-xs text-purple-600 font-medium">Dimensiune</span>
+                            <span className="text-xs text-purple-600 font-medium">Dimensiune & Orientare</span>
                           </div>
-                          <div className="flex items-start justify-between">
-                            <div>
-                              <p className="text-xs text-gray-600 mb-1">Cant: 1</p>
-                              <p className="text-sm text-gray-900">{item.printType || 'Print Canvas'}</p>
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs text-gray-600">Dimensiune:</p>
+                              <p className={`text-sm font-medium ${item.size === 'N/A' ? 'text-gray-400 italic' : 'text-gray-900'}`}>
+                                {item.size === 'N/A' ? 'Indisponibil' : item.size}
+                              </p>
                             </div>
-                            <div className="text-right">
-                              <p className="text-sm text-gray-900 mb-1">{item.size}</p>
-                              <p className="text-sm text-purple-600 font-medium">{item.price.toFixed(2)} lei</p>
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs text-gray-600">Orientare:</p>
+                              <p className="text-sm text-gray-900 font-medium capitalize">{item.orientation}</p>
+                            </div>
+                            {item.printType && (
+                              <div className="flex items-center justify-between pt-2 border-t border-purple-200">
+                                <p className="text-xs text-gray-600">Tip Print:</p>
+                                <p className="text-sm text-purple-600 font-medium">{item.printType}</p>
+                              </div>
+                            )}
+                            <div className="flex items-center justify-between pt-2 border-t border-purple-200">
+                              <p className="text-xs text-gray-600">Cant: 1</p>
+                              <p className="text-sm text-purple-600 font-medium">{hasActualFrame ? basePrice.toFixed(2) : item.price.toFixed(2)} lei</p>
                             </div>
                           </div>
                         </div>
+                        
+                        {/* Frame Tile - Only show if not "Fara Rama" */}
+                        {hasActualFrame && (
+                          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                            <div className="flex items-center space-x-2 mb-2">
+                              <Package className="w-4 h-4 text-amber-600" />
+                              <span className="text-xs text-amber-600 font-medium">Ramă</span>
+                            </div>
+                            <p className="text-sm text-gray-900 mb-1">{frameTypeData.name}</p>
+                            <p className="text-sm text-amber-600 font-medium">+{framePrice.toFixed(2)} lei</p>
+                          </div>
+                        )}
                       </div>
                       
                       {/* Actions */}
@@ -465,9 +516,25 @@ export const AdminOrderDetailPage: React.FC = () => {
               );
             } else {
               // Regular Painting Card
-              const sizeData = sizes.find(s => s.id === item.size);
-              // Get painting to check orientation
-              const painting = paintings.find(p => p.id === item.paintingId);
+              
+              // Parse size - it might be stored as display string like "20×30 cm" or as ID
+              let sizeData;
+              if (item.size.includes('×') || item.size.includes('x')) {
+                // Parse dimensions from string like "20×30 cm"
+                const match = item.size.match(/(\d+)\s*[×x]\s*(\d+)/);
+                if (match) {
+                  const width = parseInt(match[1]);
+                  const height = parseInt(match[2]);
+                  // Find size by dimensions
+                  sizeData = sizes.find(s => s.width === width && s.height === height);
+                }
+              } else {
+                // Try to find by ID
+                sizeData = sizes.find(s => s.id === item.size);
+              }
+              
+              // Get painting to check orientation (with safety check)
+              const painting = paintings?.find(p => p.id === item.paintingId);
               // For admin, if painting is landscape, reverse the dimensions to show what production needs
               const shouldReverse = painting?.orientation === 'landscape';
               const sizeDisplay = sizeData 
@@ -476,127 +543,84 @@ export const AdminOrderDetailPage: React.FC = () => {
                   : `${sizeData.width}×${sizeData.height} cm`
                 : item.size;
               
-              // Calculate base size price (before print type or frame adjustments)
-              const baseSizePrice = sizeData ? (sizeData.discount > 0 ? sizeData.price * (1 - sizeData.discount / 100) : sizeData.price) : 0;
+              // Use the price from the order item - if it's 0, recalculate from size data
+              let displayPrice = item.price;
               
-              // Get print type price (percentage-based from size price)
-              let printTypePrice = 0;
-              if (item.printType && painting) {
-                const printTypeName = item.printType === 'Print Canvas' ? 'canvas' : 'hartie';
-                const printTypeData = painting.printTypes?.find((pt: any) => pt.name === printTypeName);
-                if (printTypeData && printTypeData.pricePercentage > 0) {
-                  printTypePrice = baseSizePrice * (printTypeData.pricePercentage / 100);
-                }
+              // If item.price is 0 or not set, calculate from size data
+              if (displayPrice === 0 && sizeData) {
+                // Base size price with discount
+                const baseSizePrice = sizeData.price;
+                const sizeDiscount = sizeData.discount || 0;
+                displayPrice = sizeDiscount > 0 
+                  ? baseSizePrice * (1 - sizeDiscount / 100)
+                  : baseSizePrice;
               }
               
-              // Get frame price (from size's framePrices JSONB)
-              let framePrice = 0;
-              if (item.frameType && sizeData?.framePrices && item.frameType in sizeData.framePrices) {
-                const framePriceData = sizeData.framePrices[item.frameType];
-                framePrice = framePriceData.discount > 0 
-                  ? framePriceData.price * (1 - framePriceData.discount / 100)
-                  : framePriceData.price;
-              }
+              // Try to get discount info for display purposes
+              const sizeDiscount = sizeData?.discount || 0;
               
-              // Check if frame is "Fara Rama" to hide the frame tile
+              // Check if frame is "Fara Rama"
               const frameTypeData = item.frameType ? getFrameTypeById(item.frameType) : null;
               const hasActualFrame = frameTypeData && frameTypeData.name !== 'Fara Rama';
               
-              // Calculate dimensions price (base + print type)
-              const dimensionsPrice = baseSizePrice + printTypePrice;
-              
               return (
-                <div key={index} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
-                  <div className="flex flex-col sm:flex-row gap-4">
-                    {/* Image */}
-                    <div className="w-24 h-24 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
-                      <img 
-                        src={item.image} 
-                        alt={item.paintingTitle}
-                        className="w-full h-full object-cover"
-                      />
+                <div key={index} className="bg-purple-50 border border-purple-200 rounded-lg p-3 w-[500px]">
+                  {/* Title at top */}
+                  <div className="mb-3">
+                    <p className="text-sm text-gray-900 font-medium">{item.paintingTitle}</p>
+                  </div>
+                  
+                  {/* Show discount badge if size has discount */}
+                  {sizeDiscount > 0 && (
+                    <div className="mb-3">
+                      <span className="inline-flex items-center px-2 py-1 bg-red-100 text-red-700 text-xs font-medium rounded">
+                        Discount {sizeDiscount}% aplicat
+                      </span>
                     </div>
-                    
-                    {/* Content */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-start justify-between gap-2 mb-4">
-                        <div className="flex-1">
-                          <p className="text-sm text-gray-900 mb-2">{item.paintingTitle}</p>
-                          
-                          {item.paintingId && (() => {
-                            // Create slug from painting title
-                            const slug = item.paintingTitle
-                              .toLowerCase()
-                              .replace(/[^a-z0-9\s-]/g, '')
-                              .replace(/\s+/g, '-')
-                              .replace(/-+/g, '-')
-                              .trim();
-                            
-                            return (
-                              <Link
-                                to={`/produs/${item.paintingId}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center space-x-1 text-xs text-[#86C2FF] hover:text-[#6BADEF] transition-colors"
-                              >
-                                <ExternalLink className="w-3 h-3" />
-                                <span>Vezi în magazin</span>
-                              </Link>
-                            );
-                          })()}
+                  )}
+                  
+                  {/* Image and Info Section */}
+                  {item.printType && (
+                    <>
+                      <div className="flex gap-3 mb-3">
+                        {/* Image inside tile */}
+                        <div className="w-20 h-20 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
+                          <img 
+                            src={item.image} 
+                            alt={item.paintingTitle}
+                            className="w-full h-full object-cover"
+                          />
                         </div>
-                        <div className="flex-shrink-0">
-                          {hasActualFrame && framePrice > 0 ? (
-                            <p className="text-lg text-gray-900">
-                              {dimensionsPrice.toFixed(2)} + {framePrice.toFixed(2)} lei
-                            </p>
-                          ) : (
-                            <p className="text-lg text-gray-900">{item.price.toFixed(2)} lei</p>
-                          )}
+                        
+                        {/* Info Section */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center space-x-2 mb-2">
+                            <FileText className="w-4 h-4 text-purple-600" />
+                            <span className="text-xs text-purple-600 font-medium">Tip Print</span>
+                          </div>
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs text-gray-600">Print Type:</p>
+                              <p className="text-sm text-gray-900 font-medium">{item.printType}</p>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs text-gray-600">Dimensiune:</p>
+                              <p className="text-sm text-gray-900 font-medium">{sizeDisplay}</p>
+                            </div>
+                            <div className="flex items-center justify-between pt-1.5 border-t border-purple-200">
+                              <p className="text-xs text-gray-600">Preț:</p>
+                              <p className="text-sm text-purple-600 font-bold">{displayPrice.toFixed(2)} lei</p>
+                            </div>
+                          </div>
                         </div>
                       </div>
                       
-                      {/* Info Tiles */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-                        {/* Print Type Tile with Size, Quantity, and Price */}
-                        {item.printType && (
-                          <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
-                            <div className="flex items-center space-x-2 mb-2">
-                              <FileText className="w-4 h-4 text-purple-600" />
-                              <span className="text-xs text-purple-600 font-medium">Tip Print</span>
-                            </div>
-                            <div className="flex items-start justify-between">
-                              <div>
-                                <p className="text-xs text-gray-600 mb-1">Cant: 1</p>
-                                <p className="text-sm text-gray-900">{item.printType}</p>
-                              </div>
-                              <div className="text-right">
-                                <p className="text-sm text-gray-900 mb-1">{sizeDisplay}</p>
-                                <p className="text-sm text-purple-600 font-medium">{dimensionsPrice.toFixed(2)} lei</p>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Frame Tile - Only show if not "Fara Rama" */}
-                        {hasActualFrame && (
-                          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                            <div className="flex items-center space-x-2 mb-2">
-                              <Package className="w-4 h-4 text-amber-600" />
-                              <span className="text-xs text-amber-600 font-medium">Ramă</span>
-                            </div>
-                            <p className="text-sm text-gray-900 mb-1">{frameTypeData.name}</p>
-                            <p className="text-sm text-amber-600 font-medium">+{framePrice.toFixed(2)} lei</p>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Download button for painting */}
-                      <div className="flex flex-wrap gap-2">
+                      {/* Buttons inside tile */}
+                      <div className="flex gap-2 pt-2 border-t border-purple-200">
                         <button
                           onClick={async () => {
                             // Check if this is an Unsplash image
-                            const painting = paintings.find(p => p.id === item.paintingId);
+                            const painting = paintings?.find(p => p.id === item.paintingId);
                             if (painting?.unsplashData) {
                               // Use Unsplash service to download highest quality
                               try {
@@ -608,21 +632,21 @@ export const AdminOrderDetailPage: React.FC = () => {
                               } catch (error) {
                                 console.error('Error downloading Unsplash image:', error);
                                 // Fallback to regular download
-                                downloadImage(item.image, `${item.paintingTitle}-${item.paintingId}.jpg`);
+                                downloadImage(item.image, `${item.paintingTitle}-${painting.unsplashData.id}.jpg`);
                               }
                             } else {
                               // Regular download for non-Unsplash images
                               downloadImage(item.image, `${item.paintingTitle}-${item.paintingId}.jpg`);
                             }
                           }}
-                          className="px-3 py-1.5 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors text-xs flex items-center space-x-1"
+                          className="flex-1 px-3 py-1.5 bg-[#86C2FF] text-white rounded-md hover:bg-[#6BADEF] transition-colors text-xs flex items-center justify-center space-x-1"
                           title="Descarcă imaginea tabloului"
                         >
                           <Download className="w-3 h-3" />
                           <span>Descarcă Imagine</span>
                         </button>
                         {item.paintingId && (() => {
-                          const painting = paintings.find(p => p.id === item.paintingId);
+                          const painting = paintings?.find(p => p.id === item.paintingId);
                           
                           // Check if this is an Unsplash image by ID format
                           const isUnsplashImage = item.paintingId.startsWith('unsplash-');
@@ -638,7 +662,7 @@ export const AdminOrderDetailPage: React.FC = () => {
                                 href={unsplashUrl}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="px-3 py-1.5 bg-[#86C2FF] text-white rounded-lg hover:bg-[#6BADEF] transition-colors text-xs flex items-center space-x-1"
+                                className="flex-1 px-3 py-1.5 bg-[#86C2FF] text-white rounded-md hover:bg-[#6BADEF] transition-colors text-xs flex items-center justify-center space-x-1"
                               >
                                 <ExternalLink className="w-3 h-3" />
                                 <span>Vezi în Magazin</span>
@@ -659,7 +683,7 @@ export const AdminOrderDetailPage: React.FC = () => {
                               to={`/produs/${item.paintingId}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="px-3 py-1.5 bg-[#86C2FF] text-white rounded-lg hover:bg-[#6BADEF] transition-colors text-xs flex items-center space-x-1"
+                              className="flex-1 px-3 py-1.5 bg-[#86C2FF] text-white rounded-md hover:bg-[#6BADEF] transition-colors text-xs flex items-center justify-center space-x-1"
                             >
                               <ExternalLink className="w-3 h-3" />
                               <span>Vezi în Magazin</span>
@@ -667,8 +691,8 @@ export const AdminOrderDetailPage: React.FC = () => {
                           );
                         })()}
                       </div>
-                    </div>
-                  </div>
+                    </>
+                  )}
                 </div>
               );
             }

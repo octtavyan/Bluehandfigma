@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { 
-  paintingsService, 
   ordersService, 
   canvasSizesService, 
   frameTypesService, 
@@ -11,7 +10,7 @@ import {
   heroSlidesService,
   adminUsersService,
   subcategoriesService
-} from '../lib/supabaseDataService'; // ✅ SWITCHED TO SUPABASE FOR DEVELOPMENT
+} from '../lib/supabaseDataService'; // ✅ SWITCHED TO SUPABASE FOR DEVELOPMENT (removed paintingsService - Unsplash only)
 import { supabase } from '../lib/supabase'; // Use centralized Supabase client
 import { toast } from 'sonner';
 import { notificationService } from '../services/notificationService';
@@ -179,32 +178,7 @@ export interface SubcategoryData {
   slug?: string;
 }
 
-export interface CanvasPainting {
-  id: string;
-  title: string;
-  category: string;
-  subcategory: string;
-  image: string; // Legacy - thumbnail URL for backwards compatibility
-  imageUrls?: { // New optimized images
-    original: string;
-    medium: string;
-    thumbnail: string;
-  };
-  availableSizes: string[]; // SIMPLIFIED: Just array of size IDs like ['size-30x20', 'size-40x30']
-  price: number;
-  discount: number;
-  isBestseller: boolean;
-  isActive: boolean;
-  description?: string;
-  createdAt?: string;
-  orientation?: 'portrait' | 'landscape' | 'square';
-  dominantColor?: string;
-  printTypes?: ('Print Hartie' | 'Print Canvas')[];
-  frameTypesByPrintType?: {
-    'Print Hartie': string[];
-    'Print Canvas': string[]
-  };
-}
+// REMOVED: CanvasPainting interface - using Unsplash only
 
 export interface HeroSlide {
   id: string;
@@ -247,7 +221,6 @@ interface AdminContextType {
   frameTypes: FrameType[];
   categories: CategoryData[];
   subcategories: SubcategoryData[];
-  paintings: CanvasPainting[];
   heroSlides: HeroSlide[];
   blogPosts: BlogPost[];
   isLoading: boolean;
@@ -260,11 +233,7 @@ interface AdminContextType {
   addSubcategory: (subcategory: string) => Promise<void>;
   updateSubcategory: (subcategoryId: string, newName: string) => Promise<void>;
   deleteSubcategory: (subcategoryId: string) => Promise<void>;
-  addPainting: (painting: Omit<CanvasPainting, 'id'>) => Promise<void>;
-  updatePainting: (paintingId: string, updates: Partial<CanvasPainting>) => Promise<void>;
-  deletePainting: (paintingId: string) => Promise<void>;
-  getPaintingsByCategory: (category: string) => CanvasPainting[];
-  getBestsellers: () => CanvasPainting[];
+  // REMOVED: painting CRUD functions - using Unsplash only
   addHeroSlide: (slide: Omit<HeroSlide, 'id'>) => Promise<void>;
   updateHeroSlide: (slideId: string, updates: Partial<HeroSlide>) => Promise<void>;
   deleteHeroSlide: (slideId: string) => Promise<void>;
@@ -316,7 +285,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [currentUser, setCurrentUser] = useState<AdminUser | null>(null);
   const [orders, setOrders] = useState<OrderItem[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
-  const [paintings, setPaintings] = useState<CanvasPainting[]>([]);
+  // REMOVED: paintings state - using Unsplash only
   const [isLoading, setIsLoading] = useState(true);
   
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -391,46 +360,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // Blog posts - loaded from Supabase or localStorage
   const [blogPosts, setBlogPosts] = useState<BlogPost[]>([]);
 
-  // Convert dataService types to AdminContext types
-  const convertPaintingFromService = (p: Painting, availableSizes?: CanvasSize[]): CanvasPainting => {
-    return {
-      id: p.id,
-      title: p.title,
-      category: p.category,
-      subcategory: p.subcategory || '',
-      image: p.image,
-      imageUrls: p.imageUrls,
-      availableSizes: p.availableSizes, // SIMPLIFIED: Just pass through array of size IDs
-      price: p.price,
-      discount: p.discount,
-      isBestseller: p.isBestseller,
-      isActive: p.isActive,
-      description: p.description,
-      createdAt: p.createdAt,
-      orientation: p.orientation,
-      dominantColor: p.dominantColor,
-      printTypes: p.printTypes || [],
-      frameTypesByPrintType: p.frameTypesByPrintType || { 'Print Hartie': [], 'Print Canvas': [] }
-    };
-  };
-
-  const convertPaintingToService = (p: Omit<CanvasPainting, 'id'>): Omit<Painting, 'id' | 'createdAt'> => ({
-    title: p.title,
-    category: p.category,
-    subcategory: p.subcategory,
-    description: p.description,
-    image: p.image,
-    imageUrls: p.imageUrls,
-    availableSizes: p.availableSizes, // SIMPLIFIED: Just pass through array of size IDs
-    price: p.price,
-    discount: p.discount,
-    isBestseller: p.isBestseller,
-    isActive: p.isActive,
-    orientation: p.orientation,
-    dominantColor: p.dominantColor,
-    printTypes: p.printTypes,
-    frameTypesByPrintType: p.frameTypesByPrintType
-  });
+  // REMOVED: painting converter functions - using Unsplash only
 
   // Load all data from services WITH CACHING to reduce bandwidth
   const loadData = async () => {
@@ -464,7 +394,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       };
 
       // Try cache first for each resource
-      const cachedPaintings = CacheService.get<any[]>(CACHE_KEYS.PAINTINGS);
       const cachedClients = CacheService.get<any[]>(CACHE_KEYS.CLIENTS);
       const cachedOrders = CacheService.get<any[]>(CACHE_KEYS.ORDERS);
       const cachedBlogPosts = CacheService.get<any[]>(CACHE_KEYS.BLOG_POSTS);
@@ -474,7 +403,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const cachedCategories = CacheService.get<any[]>(CACHE_KEYS.CATEGORIES);
       const cachedSubcategories = CacheService.get<any[]>(CACHE_KEYS.SUBCATEGORIES);
 
-      // ⚠️ CRITICAL: Load canvas sizes FIRST (paintings need sizes to match sizeId)
+      // Load canvas sizes
       let sizesData;
       if (cachedSizes) {
         sizesData = cachedSizes;
@@ -532,17 +461,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       })) : [];
       setFrameTypes(convertedFrameTypes);
 
-      // Load paintings (from cache or Supabase) - NOW sizes are available!
-      let paintingsData;
-      if (cachedPaintings) {
-        paintingsData = cachedPaintings;
-      } else {
-        paintingsData = await retryWithBackoff(() => paintingsService.getAll());
-        CacheService.set(CACHE_KEYS.PAINTINGS, paintingsData, CACHE_TTL.PAINTINGS);
-        await delay(400);
-      }
-      // Pass sizes to converter so it can match properly
-      setPaintings(paintingsData.map(p => convertPaintingFromService(p, convertedSizes)));
+      // REMOVED: paintings loading - using Unsplash only
 
       // Load clients (from cache or Supabase)
       let clientsData;
@@ -598,6 +517,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             // If parsing fails, it's likely legacy text notes - convert to new format
             if (typeof o.notes === 'string' && o.notes.trim()) {
               console.log(`📝 Converting legacy text note for order ${o.id.slice(-8)}: "${o.notes.substring(0, 30)}..."`);
+              // Converting legacy text note
               orderNotes = [{
                 id: `legacy-${Date.now()}`,
                 text: o.notes,
@@ -774,9 +694,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       let categoriesData;
       if (cachedCategories) {
         categoriesData = cachedCategories;
-        console.log('✅ Using cached categories');
       } else {
-        console.log('📡 Fetching categories from Supabase...');
         categoriesData = await retryWithBackoff(() => categoriesService.getAll());
         CacheService.set(CACHE_KEYS.CATEGORIES, categoriesData, CACHE_TTL.CATEGORIES);
         await delay(400);
@@ -792,9 +710,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       let subcategoriesData;
       if (cachedSubcategories) {
         subcategoriesData = cachedSubcategories;
-        console.log('✅ Using cached subcategories');
       } else {
-        console.log('📡 Fetching subcategories from Supabase...');
         subcategoriesData = await retryWithBackoff(() => subcategoriesService.getAll());
         CacheService.set(CACHE_KEYS.SUBCATEGORIES, subcategoriesData, CACHE_TTL.SUBCATEGORIES);
         await delay(400);
@@ -1142,6 +1058,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           // If parsing fails, it's likely legacy text notes - convert to new format
           if (typeof fullOrder.notes === 'string' && fullOrder.notes.trim()) {
             console.log(`📝 Converting legacy text note for order ${orderId.slice(-8)}: "${fullOrder.notes.substring(0, 30)}..."`);
+            // Converting legacy text note
             orderNotesFromDB = [{
               id: `legacy-${Date.now()}`,
               text: fullOrder.notes,
@@ -1753,51 +1670,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  const addPainting = async (paintingData: Omit<CanvasPainting, 'id'>) => {
-    try {
-      const serviceData = convertPaintingToService(paintingData);
-      const created = await paintingsService.create(serviceData);
-      setPaintings(prev => [convertPaintingFromService(created, sizes), ...prev]);
-      CacheService.invalidate(CACHE_KEYS.PAINTINGS); // Invalidate cache
-    } catch (error) {
-      console.error('Error adding painting:', error);
-      throw error;
-    }
-  };
-
-  const updatePainting = async (paintingId: string, updates: Partial<CanvasPainting>) => {
-    try {
-      // SIMPLIFIED: Just pass through the updates - sizes are now just an array of IDs
-      const updateData = convertPaintingToService(updates as Omit<CanvasPainting, 'id'>);
-      const updated = await paintingsService.update(paintingId, updateData);
-      setPaintings(prev => prev.map(p => 
-        p.id === paintingId ? convertPaintingFromService(updated, sizes) : p
-      ));
-      CacheService.invalidate(CACHE_KEYS.PAINTINGS); // Invalidate cache
-    } catch (error) {
-      console.error('Error updating painting:', error);
-      throw error;
-    }
-  };
-
-  const deletePainting = async (paintingId: string) => {
-    try {
-      await paintingsService.delete(paintingId);
-      setPaintings(prev => prev.filter(p => p.id !== paintingId));
-      CacheService.invalidate(CACHE_KEYS.PAINTINGS); // Invalidate cache
-    } catch (error) {
-      console.error('Error deleting painting:', error);
-      throw error;
-    }
-  };
-
-  const getPaintingsByCategory = (category: string): CanvasPainting[] => {
-    return paintings.filter(painting => painting.category === category && painting.isActive);
-  };
-
-  const getBestsellers = (): CanvasPainting[] => {
-    return paintings.filter(painting => painting.isBestseller && painting.isActive);
-  };
+  // REMOVED: All painting CRUD functions - using Unsplash only
 
   // User management (still localStorage only)
   const addUser = async (userData: Omit<AdminUser, 'id'>) => {
@@ -2242,7 +2115,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         frameTypes,
         categories,
         subcategories,
-        paintings,
         heroSlides,
         blogPosts,
         isLoading,
@@ -2255,11 +2127,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         addSubcategory,
         updateSubcategory,
         deleteSubcategory,
-        addPainting,
-        updatePainting,
-        deletePainting,
-        getPaintingsByCategory,
-        getBestsellers,
+        // REMOVED: painting functions - using Unsplash only
         addHeroSlide,
         updateHeroSlide,
         deleteHeroSlide,

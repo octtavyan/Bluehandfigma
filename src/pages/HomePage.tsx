@@ -47,7 +47,7 @@ export const HomePage: React.FC = () => {
     if (sortedSlides.length === 0) return;
     const timer = setInterval(() => {
       setCurrentSlide((prev) => (prev + 1) % sortedSlides.length);
-    }, 5000);
+    }, 8000);
     return () => clearInterval(timer);
   }, [sortedSlides.length]);
 

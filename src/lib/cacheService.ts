@@ -5,7 +5,7 @@
 const CACHE_VERSION = 'v5_users_reload'; // ✨ INCREMENT THIS TO CLEAR ALL CACHES
 
 export const CACHE_KEYS = {
-  PAINTINGS: `paintings_${CACHE_VERSION}`,
+  // REMOVED: PAINTINGS - using Unsplash only
   SIZES: `sizes_${CACHE_VERSION}`,
   FRAME_TYPES: `frame_types_${CACHE_VERSION}`,
   ORDERS: `orders_${CACHE_VERSION}`,
@@ -176,7 +176,7 @@ export class CacheService {
 
 // Cache TTL configurations (in minutes)
 export const CACHE_TTL = {
-  PAINTINGS: 60,        // 1 hour - paintings don't change often
+  // REMOVED: PAINTINGS - using Unsplash only
   ORDERS: 2,            // 2 minutes - orders change frequently & can be large
   CLIENTS: 30,          // 30 minutes - moderate changes
   BLOG_POSTS: 120,      // 2 hours - rarely change

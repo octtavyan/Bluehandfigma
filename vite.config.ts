@@ -19,6 +19,7 @@
         'hono@4.3.11': 'hono',
         'figma:asset/eae8b3109dc56d840e1f79f2c33eef2a480957ea.png': path.resolve(__dirname, './src/assets/eae8b3109dc56d840e1f79f2c33eef2a480957ea.png'),
         'figma:asset/e13722fae17f2ce12beb5ca6d76372429e2ea412.png': path.resolve(__dirname, './src/assets/e13722fae17f2ce12beb5ca6d76372429e2ea412.png'),
+        'figma:asset/904749046e1558a5005b49778d2070c96433a86b.png': path.resolve(__dirname, './src/assets/904749046e1558a5005b49778d2070c96433a86b.png'),
         'figma:asset/25913da363cd6c42f8a4a62602c125c85410c64f.png': path.resolve(__dirname, './src/assets/25913da363cd6c42f8a4a62602c125c85410c64f.png'),
         'embla-carousel-react@8.6.0': 'embla-carousel-react',
         'cmdk@1.1.1': 'cmdk',

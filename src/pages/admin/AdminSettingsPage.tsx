@@ -27,6 +27,7 @@ export const AdminSettingsPage: React.FC = () => {
   // Netopia state
   const [loadingNetopia, setLoadingNetopia] = useState(false);
   const [savingNetopia, setSavingNetopia] = useState(false);
+  const [testingNetopia, setTestingNetopia] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
   const [netopiaSettings, setNetopiaSettings] = useState<NetopiaSettings>({
     merchantId: '',
@@ -108,6 +109,7 @@ export const AdminSettingsPage: React.FC = () => {
   };
 
   const testNetopiaConnection = async () => {
+    setTestingNetopia(true);
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/netopia/test`,
@@ -119,14 +121,24 @@ export const AdminSettingsPage: React.FC = () => {
         }
       );
 
-      if (response.ok) {
-        toast.success('Conexiune Netopia testată cu succes!');
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        // Show success with details
+        const details = [];
+        if (data.hasApiKey) details.push('✓ API Key');
+        if (data.hasPosSignature) details.push('✓ POS Signature');
+        if (data.hasPublicKey) details.push('✓ Public Key');
+        
+        toast.success(`${data.message}\n\nCredențiale configurate:\n${details.join('\n')}`);
       } else {
-        toast.error('Eroare la testarea conexiunii');
+        toast.error(data.error || 'Eroare la testarea conexiunii');
       }
     } catch (error) {
       console.error('Error testing connection:', error);
       toast.error('Eroare la testarea conexiunii');
+    } finally {
+      setTestingNetopia(false);
     }
   };
 
@@ -252,53 +264,53 @@ export const AdminSettingsPage: React.FC = () => {
                   </p>
                 </div>
 
-                {/* API Key */}
+                {/* API Key (Private Key) */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    API Key (Secret Key)
+                    Private Key (Cheie Privată) - RSA Key ⚠️ OPȚIONAL
                   </label>
                   <div className="relative">
-                    <input
-                      type={showApiKey ? 'text' : 'password'}
+                    <textarea
                       value={netopiaSettings.apiKey}
                       onChange={(e) => setNetopiaSettings({ ...netopiaSettings, apiKey: e.target.value })}
-                      placeholder="Introdu cheia API secretă"
-                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none pr-12"
+                      placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
+                      rows={8}
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none font-mono text-xs pr-12"
                     />
                     <button
                       type="button"
                       onClick={() => setShowApiKey(!showApiKey)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                      className="absolute right-3 top-3 text-gray-500 hover:text-gray-700"
                     >
                       {showApiKey ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                     </button>
                   </div>
-                  <p className="mt-1 text-xs text-gray-500">
-                    Cheia secretă API primită de la Netopia
+                  <p className="mt-1 text-xs text-yellow-600 bg-yellow-50 p-2 rounded border border-yellow-200">
+                    ⚠️ ATENȚIE: Acest câmp este OPȚIONAL și folosit doar pentru decriptarea notificărilor IPN de la Netopia. NU este necesar pentru procesarea plăților. Lasă GOL dacă nu ai implementat IPN callbacks.
                   </p>
                 </div>
 
                 {/* POS Signature */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    POS Signature
+                    POS Signature (Required) ⚠️
                   </label>
                   <input
                     type="text"
                     value={netopiaSettings.posSignature}
                     onChange={(e) => setNetopiaSettings({ ...netopiaSettings, posSignature: e.target.value })}
-                    placeholder="ex: XXXX-XXXX-XXXX-XXXX-XXXX"
-                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+                    placeholder="ex: 38CJ-NTJR-M8VL-QSUQ-OHEA"
+                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none font-mono"
                   />
                   <p className="mt-1 text-xs text-gray-500">
-                    Semnătura POS pentru autentificare
+                    🔑 Câmpul "Semnătură" din dashboard-ul Netopia (ex: 38CJ-NTJR-M8VL-QSUQ-OHEA) - FOLOSIT PENTRU AUTENTIFICARE
                   </p>
                 </div>
 
                 {/* Public Key */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Public Key (Certificate)
+                    Public Key (Cheie Publică) - OBLIGATORIU ✅
                   </label>
                   <textarea
                     value={netopiaSettings.publicKey}
@@ -307,8 +319,8 @@ export const AdminSettingsPage: React.FC = () => {
                     rows={6}
                     className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none font-mono text-sm"
                   />
-                  <p className="mt-1 text-xs text-gray-500">
-                    Certificatul public furnizat de Netopia pentru verificarea semnăturilor
+                  <p className="mt-1 text-xs text-green-600 bg-green-50 p-2 rounded border border-green-200">
+                    ✅ IMPORTANT: Descarcă fișierul "Cheie publică" (butonul DESCARCĂ) din dashboard-ul Netopia și copiază DOAR conținutul care începe cu "-----BEGIN PUBLIC KEY-----" (NU certificatul care începe cu "-----BEGIN CERTIFICATE-----")
                   </p>
                 </div>
 
@@ -341,10 +353,10 @@ export const AdminSettingsPage: React.FC = () => {
                   </button>
                   <button
                     onClick={testNetopiaConnection}
-                    disabled={!netopiaSettings.merchantId || !netopiaSettings.apiKey}
+                    disabled={!netopiaSettings.posSignature || testingNetopia}
                     className="px-6 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Testează Conexiunea
+                    {testingNetopia ? 'Se testează...' : 'Testează Conexiunea'}
                   </button>
                 </div>
               </div>

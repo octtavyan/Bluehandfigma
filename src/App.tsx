@@ -108,6 +108,12 @@ function App() {
     }
     viewportMeta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
     
+    // Add Facebook domain verification meta tag
+    const fbVerificationMeta = document.createElement('meta');
+    fbVerificationMeta.setAttribute('name', 'facebook-domain-verification');
+    fbVerificationMeta.setAttribute('content', 'solhjs5ms4ri7yvluu80dhllzkdfmh');
+    document.head.appendChild(fbVerificationMeta);
+    
     // Prevent double-tap zoom on iOS
     document.addEventListener('touchstart', (e) => {
       if (e.touches.length > 1) {

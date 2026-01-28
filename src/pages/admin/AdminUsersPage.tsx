@@ -69,7 +69,6 @@ export const AdminUsersPage: React.FC = () => {
       const result = await response.json();
       
       if (result.success) {
-        console.log('✅ Password verification email sent');
         return { success: true };
       } else {
         // Check if it's a domain verification error (testing mode)
@@ -89,8 +88,6 @@ export const AdminUsersPage: React.FC = () => {
 
   const handleEditUser = async () => {
     if (editingUser && formData) {
-      console.log('🔄 Starting user update...', { editingUser, formData });
-      
       // Validate required fields (password is optional when editing)
       if (!formData.fullName || !formData.email || !formData.username) {
         toast.error('Te rugăm să completezi toate câmpurile obligatorii');
@@ -121,7 +118,6 @@ export const AdminUsersPage: React.FC = () => {
         updateData.password = formData.password;
       }
 
-      console.log('✅ Updating user with data:', updateData);
       updateUser(editingUser.id, updateData);
 
       // Send verification email if password was changed

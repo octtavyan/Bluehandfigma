@@ -8,8 +8,7 @@ import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { imagePreloader } from '../services/imagePreloader';
 
 export const TablouriCanvasPage: React.FC = () => {
-  console.log('[TablouriCanvasPage] Component rendering');
-  const { categories, subcategories, paintings } = useAdmin();
+  const { categories, subcategories } = useAdmin();
   const [selectedOrientation, setSelectedOrientation] = useState<string>('all');
   const [selectedColor, setSelectedColor] = useState<string>('all');
   const [showMobileFilters, setShowMobileFilters] = useState(false);
@@ -180,9 +179,8 @@ export const TablouriCanvasPage: React.FC = () => {
         query.trim(),
         result.results.slice(0, 10),
         result.total
-      ).catch(error => {
+      ).catch(() => {
         // Silent fail - don't interrupt user experience
-        console.log('Search tracking skipped:', error);
       });
     } catch (error) {
       console.error('Error searching Unsplash:', error);
@@ -326,30 +324,11 @@ export const TablouriCanvasPage: React.FC = () => {
     }
   };
 
-  // Filter paintings
-  let filteredPaintings = paintings.filter(p => p.isActive);
-  
-  if (selectedOrientation !== 'all') {
-    filteredPaintings = filteredPaintings.filter(p => p.orientation === selectedOrientation);
-  }
-
-  if (selectedColor !== 'all') {
-    filteredPaintings = filteredPaintings.filter(p => {
-      if (!p.dominantColor) return false;
-      // Case-insensitive comparison and trim whitespace
-      return p.dominantColor.trim().toLowerCase() === selectedColor.trim().toLowerCase();
-    });
-  }
-
-  // Sort paintings - bestsellers first
-  const sortedPaintings = [...filteredPaintings].sort((a, b) => {
-    if (a.isBestseller && !b.isBestseller) return -1;
-    if (!a.isBestseller && b.isBestseller) return 1;
-    return 0;
-  });
-  
   // Check if any filters are active
   const hasActiveFilters = selectedOrientation !== 'all' || selectedColor !== 'all';
+  
+  // Define sortedPaintings as empty array since paintings are offline
+  const sortedPaintings: any[] = [];
   
   // Filter Unsplash images based on current filters
   const filteredRandomUnsplashImages = hasActiveFilters 
@@ -368,22 +347,18 @@ export const TablouriCanvasPage: React.FC = () => {
   
   return (
     <div className="min-h-screen bg-white">
-      {/* Hero Section - Equal padding top and bottom */}
-      <section className="py-6 md:py-12 bg-white">
-        <div className="max-w-[1600px] mx-auto px-6 text-center">
-          <h1 className="text-2xl md:text-3xl text-gray-900">Tablouri Canvas</h1>
-        </div>
-      </section>
-
-      {/* Main Content - Grid Layout with Filters - Standardized */}
-      <section className="py-0 md:py-8">
-        <div className="max-w-[1600px] mx-auto px-6">
-          <div className="flex gap-8 items-start">
-            {/* Filter Panel - Desktop Only */}
-            <aside className="hidden lg:block w-64 flex-shrink-0 self-start sticky top-24">
-              <div className="space-y-6 max-h-[calc(100vh-7rem)] overflow-y-auto pb-4">
+      {/* Main Content with Sidebar - Matching PersonalizedCanvasPage Layout */}
+      <div className="max-w-[1600px] mx-auto">
+        <div className="flex flex-col lg:flex-row">
+          {/* Vertical Filter Sidebar - Desktop */}
+          <div className="hidden lg:block w-64 border-r border-gray-200 bg-white min-h-[calc(100vh-120px)] p-6">
+            <div className="sticky top-24">
+              {/* Title in Sidebar */}
+              <h2 className="text-xl font-semibold text-gray-900 mb-8">Tablouri Canvas</h2>
+              
+              <div className="space-y-6">
                 {/* Unsplash Search Bar */}
-                <div className="bg-gradient-to-r from-gray-50 to-gray-100 p-4 rounded-lg border border-gray-200">
+                <div className="bg-white p-4 rounded-lg border border-gray-200">
                   <h3 className="text-gray-900 mb-3 text-sm font-medium">Caută Imagini</h3>
                   <form onSubmit={handleUnsplashSearch} className="space-y-2">
                     <input
@@ -423,43 +398,15 @@ export const TablouriCanvasPage: React.FC = () => {
 
                 <div className="h-px bg-gray-200"></div>
 
-                {/* Clear Filters Button - Only show when filters are active */}
-                {hasActiveFilters && (
-                  <>
-                    <button
-                      onClick={() => {
-                        setSelectedOrientation('all');
-                        setSelectedColor('all');
-                        window.scrollTo({ top: 0, behavior: 'smooth' });
-                      }}
-                      className="w-full px-4 py-2.5 bg-[#7B93FF] text-white rounded-lg hover:bg-[#6A82EE] transition-colors text-sm font-medium shadow-sm"
-                    >
-                      Clear All Filters
-                    </button>
-                    <div className="h-px bg-gray-200"></div>
-                  </>
-                )}
-
                 {/* Orientation Filter - with icons */}
-                <div className="mb-6">
-                  <h3 className="text-gray-900 mb-3">Orientare</h3>
-                  <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <h3 className="text-gray-900 mb-3 font-medium">Orientare</h3>
+                  <div className="grid grid-cols-2 gap-2">
                     <button
-                      onClick={() => setSelectedOrientation('all')}
-                      className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all ${
-                        selectedOrientation === 'all'
-                          ? 'border-[#86C2FF] bg-[#86C2FF]/10'
-                          : 'border-gray-200 hover:border-gray-400'
-                      }`}
-                    >
-                      <SlidersHorizontal className="w-5 h-5 text-gray-700" />
-                      <span className="text-xs text-gray-700">Toate</span>
-                    </button>
-                    <button
-                      onClick={() => setSelectedOrientation('portrait')}
-                      className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all ${
+                      onClick={() => setSelectedOrientation(selectedOrientation === 'portrait' ? 'all' : 'portrait')}
+                      className={`flex flex-col items-center gap-2 p-3 rounded-lg border transition-all ${
                         selectedOrientation === 'portrait'
-                          ? 'border-[#86C2FF] bg-[#86C2FF]/10'
+                          ? 'border-[#6994FF] bg-[#6994FF]/10'
                           : 'border-gray-200 hover:border-gray-400'
                       }`}
                     >
@@ -467,10 +414,10 @@ export const TablouriCanvasPage: React.FC = () => {
                       <span className="text-xs text-gray-700">Portret</span>
                     </button>
                     <button
-                      onClick={() => setSelectedOrientation('landscape')}
-                      className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all ${
+                      onClick={() => setSelectedOrientation(selectedOrientation === 'landscape' ? 'all' : 'landscape')}
+                      className={`flex flex-col items-center gap-2 p-3 rounded-lg border transition-all ${
                         selectedOrientation === 'landscape'
-                          ? 'border-[#86C2FF] bg-[#86C2FF]/10'
+                          ? 'border-[#6994FF] bg-[#6994FF]/10'
                           : 'border-gray-200 hover:border-gray-400'
                       }`}
                     >
@@ -478,69 +425,46 @@ export const TablouriCanvasPage: React.FC = () => {
                       <span className="text-xs text-gray-700">Landscape</span>
                     </button>
                   </div>
-                  <button
-                    onClick={() => setSelectedOrientation('square')}
-                    className={`w-full flex items-center justify-center gap-2 p-3 rounded-lg border-2 transition-all mt-2 ${
-                      selectedOrientation === 'square'
-                        ? 'border-[#86C2FF] bg-[#86C2FF]/10'
-                        : 'border-gray-200 hover:border-gray-400'
-                    }`}
-                  >
-                    <Square className="w-5 h-5 text-gray-700" />
-                    <span className="text-xs text-gray-700">Pătrat</span>
-                  </button>
                 </div>
 
-                <div className="h-px bg-gray-200 mb-6"></div>
+                <div className="h-px bg-gray-200"></div>
 
                 {/* Color Filter */}
-                <div className="mb-6">
-                  <h3 className="text-gray-900 mb-3">Culoare</h3>
-                  <div className="space-y-3">
-                    <label className="flex items-center gap-2 cursor-pointer group">
-                      <input
-                        type="radio"
-                        name="color"
-                        checked={selectedColor === 'all'}
-                        onChange={() => setSelectedColor('all')}
-                        className="w-4 h-4 text-[#86C2FF] focus:ring-[#86C2FF]"
+                <div>
+                  <h3 className="text-gray-900 mb-3 font-medium">Culoare</h3>
+                  <div className="grid grid-cols-6 gap-2">
+                    {[
+                      { name: 'Roșu', color: '#EF4444' },
+                      { name: 'Portocaliu', color: '#F97316' },
+                      { name: 'Galben', color: '#EAB308' },
+                      { name: 'Verde', color: '#22C55E' },
+                      { name: 'Albastru', color: '#3B82F6' },
+                      { name: 'Mov', color: '#A855F7' },
+                      { name: 'Roz', color: '#EC4899' },
+                      { name: 'Maro', color: '#92400E' },
+                      { name: 'Negru', color: '#000000' },
+                      { name: 'Alb', color: '#FFFFFF' },
+                      { name: 'Gri', color: '#6B7280' },
+                      { name: 'Bej', color: '#D4C5B9' },
+                    ].map((colorItem) => (
+                      <button
+                        key={colorItem.name}
+                        onClick={() => setSelectedColor(selectedColor === colorItem.name ? 'all' : colorItem.name)}
+                        className={`w-8 h-8 rounded-full border transition-all ${
+                          selectedColor === colorItem.name
+                            ? 'border-[#6994FF] ring-2 ring-[#6994FF] ring-offset-2'
+                            : 'border-gray-200 hover:border-gray-400'
+                        }`}
+                        style={{ backgroundColor: colorItem.color }}
+                        title={colorItem.name}
                       />
-                      <span className="text-sm text-gray-700 group-hover:text-gray-900">Toate Culorile</span>
-                    </label>
-                    <div className="grid grid-cols-6 gap-2">
-                      {[
-                        { name: 'Roșu', color: '#EF4444' },
-                        { name: 'Portocaliu', color: '#F97316' },
-                        { name: 'Galben', color: '#EAB308' },
-                        { name: 'Verde', color: '#22C55E' },
-                        { name: 'Albastru', color: '#3B82F6' },
-                        { name: 'Mov', color: '#A855F7' },
-                        { name: 'Roz', color: '#EC4899' },
-                        { name: 'Maro', color: '#92400E' },
-                        { name: 'Negru', color: '#000000' },
-                        { name: 'Alb', color: '#FFFFFF' },
-                        { name: 'Gri', color: '#6B7280' },
-                        { name: 'Bej', color: '#D4C5B9' },
-                      ].map((colorItem) => (
-                        <button
-                          key={colorItem.name}
-                          onClick={() => setSelectedColor(colorItem.name)}
-                          className={`w-8 h-8 rounded-full border-2 transition-all ${
-                            selectedColor === colorItem.name
-                              ? 'border-[#86C2FF] ring-2 ring-[#86C2FF] ring-offset-2'
-                              : 'border-gray-200 hover:border-gray-400'
-                          }`}
-                          style={{ backgroundColor: colorItem.color }}
-                          title={colorItem.name}
-                        />
-                      ))}
-                    </div>
+                    ))}
                   </div>
                 </div>
 
                 {hasActiveFilters && (
                   <>
-                    <div className="h-px bg-gray-200 mb-6"></div>
+                    <div className="h-px bg-gray-200"></div>
 
                     {/* Clear Filters */}
                     <button
@@ -556,420 +480,363 @@ export const TablouriCanvasPage: React.FC = () => {
                   </>
                 )}
               </div>
-            </aside>
+            </div>
+          </div>
 
-            {/* Paintings Grid - Right Side */}
-            <div className="flex-1">
-              {/* Mobile: Show Filter button */}
-              <div className="lg:hidden flex items-center justify-between mb-6">
-                <p className="text-gray-600 text-sm">
-                  {sortedPaintings.length} {sortedPaintings.length === 1 ? 'tablou găsit' : 'tablouri găsite'}
-                </p>
+          {/* Main Content Area - Right Side */}
+          <div className="flex-1 lg:px-8 px-6 py-6">
+            {/* Mobile: Show Filter button */}
+            <div className="lg:hidden flex items-center justify-end mb-6">
+              <div className="relative">
                 <button
-                  onClick={() => setShowMobileFilters(true)}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+                  onClick={() => setShowMobileFilters(!showMobileFilters)}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors text-sm ${
+                    showMobileFilters
+                      ? 'bg-[#6994FF] text-white border border-[#6994FF]'
+                      : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                  }`}
                 >
                   <SlidersHorizontal className="w-4 h-4" />
                   <span>Filtre</span>
                 </button>
-              </div>
 
-              {/* Unsplash Results Section */}
-              {showUnsplashResults && (
-                <div className="mb-8 md:mb-12">
-                  <div className="flex items-center justify-between mb-4 md:mb-6">
-                    <h2 className="text-xl md:text-2xl text-gray-900">
-                      {unsplashQuery ? `Rezultate pentru "${unsplashQuery}"` : 'Imagini Populare'}
-                    </h2>
-                    <button
-                      onClick={() => {
-                        setShowUnsplashResults(false);
-                        setUnsplashQuery('');
-                      }}
-                      className="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-1"
-                    >
-                      <X className="w-4 h-4" />
-                      Ascunde
-                    </button>
-                  </div>
-                  
-                  {isLoadingUnsplash ? (
-                    <div className="flex items-center justify-center py-12">
-                      <div className="animate-spin w-8 h-8 border-4 border-gray-200 border-t-[#86C2FF] rounded-full"></div>
-                    </div>
-                  ) : unsplashError ? (
-                    <div className="text-center py-12 bg-gray-50 rounded-lg">
-                      <p className="text-gray-600">{unsplashError}</p>
-                    </div>
-                  ) : filteredSearchUnsplashImages.length === 0 ? (
-                    <div className="text-center py-12 bg-gray-50 rounded-lg">
-                      <p className="text-gray-600">Nu au fost găsite imagini pentru această căutare</p>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6 mb-12">
-                      {filteredSearchUnsplashImages.map((image) => (
-                        <Link 
-                          key={image.id} 
-                          to={`/produs/unsplash-${image.id}`}
-                          onClick={() => {
-                            // Store the Unsplash image data in sessionStorage for detail page
-                            sessionStorage.setItem(`unsplash-${image.id}`, JSON.stringify(image));
-                            // Store search state so we can return to search results
-                            sessionStorage.setItem('unsplash-search-state', JSON.stringify({
-                              query: unsplashQuery,
-                              showResults: true
-                            }));
-                          }}
-                          className="group"
-                        >
-                          <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden mb-3 relative">
-                            <img
-                              src={image.urls.small}
-                              alt={image.alt_description || 'Unsplash image'}
-                              loading="lazy"
-                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                            />
+                {/* Mobile Filter Dropdown */}
+                {showMobileFilters && (
+                  <>
+                    {/* Backdrop */}
+                    <div 
+                      className="fixed inset-0 z-40" 
+                      onClick={() => setShowMobileFilters(false)}
+                    />
+                    
+                    {/* Dropdown Content */}
+                    <div className="absolute right-0 top-full mt-2 w-[280px] bg-white rounded-lg shadow-xl border border-gray-200 z-50 max-h-[70vh] overflow-y-auto">
+                      <div className="p-3 space-y-3">
+                        {/* Orientation Filter */}
+                        <div>
+                          <h3 className="text-xs font-medium text-gray-900 mb-2">Orientare</h3>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              onClick={() => setSelectedOrientation(selectedOrientation === 'portrait' ? 'all' : 'portrait')}
+                              className={`flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-all ${
+                                selectedOrientation === 'portrait'
+                                  ? 'border-[#86C2FF] bg-[#86C2FF]/10'
+                                  : 'border-gray-200 hover:border-gray-400'
+                              }`}
+                            >
+                              <RectangleVertical className="w-4 h-4 text-gray-700" />
+                              <span className="text-xs text-gray-700">Portret</span>
+                            </button>
+                            <button
+                              onClick={() => setSelectedOrientation(selectedOrientation === 'landscape' ? 'all' : 'landscape')}
+                              className={`flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-all ${
+                                selectedOrientation === 'landscape'
+                                  ? 'border-[#86C2FF] bg-[#86C2FF]/10'
+                                  : 'border-gray-200 hover:border-gray-400'
+                              }`}
+                            >
+                              <RectangleHorizontal className="w-4 h-4 text-gray-700" />
+                              <span className="text-xs text-gray-700">Landscape</span>
+                            </button>
                           </div>
-                          
-                          <h3 className="text-gray-900 group-hover:text-[#86C2FF] transition-colors line-clamp-2 mb-1 text-sm sm:text-base">
-                            {image.alt_description || image.description || 'Imagine Unsplash'}
-                          </h3>
+                        </div>
 
-                          <p className="text-xs text-gray-500">
-                            de {image.user.name}
-                          </p>
-                        </Link>
-                      ))}
-                    </div>
-                  )}
-                  
-                  {/* Load More Button */}
-                  {!isLoadingUnsplash && !unsplashError && hasMoreUnsplash && filteredSearchUnsplashImages.length > 0 && (
-                    <div className="text-center">
-                      <button
-                        onClick={loadMoreUnsplash}
-                        disabled={isLoadingMore}
-                        className="px-6 py-3 bg-[#7B93FF] text-white rounded-lg hover:bg-[#6A82EE] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {isLoadingMore ? 'Se încarcă...' : 'Încarcă Mai Multe'}
-                      </button>
-                    </div>
-                  )}
-                  
-                  {/* Separator - Show when there are database paintings to display */}
-                  {sortedPaintings.length > 0 && (
-                    <>
-                      <div className="h-px bg-gray-200 my-8"></div>
-                      <h2 className="text-xl text-gray-900 mb-6">Tablouri Canvas din Colecția Noastră</h2>
-                    </>
-                  )}
-                </div>
-              )}
+                        <div className="h-px bg-gray-200"></div>
 
-              {sortedPaintings.length === 0 && filteredRandomUnsplashImages.length === 0 && !showUnsplashResults && !isLoadingRandom ? (
-                <div className="sticky top-24 bg-white rounded-lg border border-gray-200 shadow-sm p-8 text-center">
-                  <p className="text-gray-500 text-lg mb-4">Nu există tablouri pentru filtrele selectate</p>
+                        {/* Color Filter */}
+                        <div>
+                          <h3 className="text-xs font-medium text-gray-900 mb-2">Culoare</h3>
+                          <div className="grid grid-cols-6 gap-1.5">
+                            {[
+                              { name: 'Roșu', color: '#EF4444' },
+                              { name: 'Portocaliu', color: '#F97316' },
+                              { name: 'Galben', color: '#EAB308' },
+                              { name: 'Verde', color: '#22C55E' },
+                              { name: 'Albastru', color: '#3B82F6' },
+                              { name: 'Mov', color: '#A855F7' },
+                              { name: 'Roz', color: '#EC4899' },
+                              { name: 'Maro', color: '#92400E' },
+                              { name: 'Negru', color: '#000000' },
+                              { name: 'Alb', color: '#FFFFFF' },
+                              { name: 'Gri', color: '#6B7280' },
+                              { name: 'Bej', color: '#D4C5B9' },
+                            ].map((colorItem) => (
+                              <button
+                                key={colorItem.name}
+                                onClick={() => setSelectedColor(selectedColor === colorItem.name ? 'all' : colorItem.name)}
+                                className={`w-8 h-8 rounded-full border-2 transition-all ${
+                                  selectedColor === colorItem.name
+                                    ? 'border-[#86C2FF] ring-2 ring-[#86C2FF] ring-offset-1'
+                                    : 'border-gray-200 hover:border-gray-400'
+                                }`}
+                                style={{ backgroundColor: colorItem.color }}
+                                title={colorItem.name}
+                              />
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Clear Filters Button */}
+                        {hasActiveFilters && (
+                          <>
+                            <div className="h-px bg-gray-200"></div>
+                            <button
+                              onClick={() => {
+                                setSelectedOrientation('all');
+                                setSelectedColor('all');
+                              }}
+                              className="w-full px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-xs"
+                            >
+                              Clear Filters
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Unsplash Results Section */}
+            {showUnsplashResults && (
+              <div className="mb-8 md:mb-12">
+                <div className="flex items-center justify-between mb-4 md:mb-6">
+                  <h2 className="text-xl md:text-2xl text-gray-900">
+                    {unsplashQuery ? `Rezultate pentru "${unsplashQuery}"` : 'Imagini Populare'}
+                  </h2>
                   <button
                     onClick={() => {
-                      setSelectedOrientation('all');
-                      setSelectedColor('all');
-                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                      setShowUnsplashResults(false);
+                      setUnsplashQuery('');
                     }}
-                    className="px-6 py-2 bg-[#86C2FF] text-white rounded-lg hover:bg-[#6FB0EE] transition-colors"
+                    className="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-1"
                   >
-                    Clear Filters
+                    <X className="w-4 h-4" />
+                    Ascunde
                   </button>
                 </div>
-              ) : (
-                <>
-                  {/* Random Unsplash Images Section - show when no search is active AND (no filters OR when filters match) */}
-                  {!showUnsplashResults && randomUnsplashImages.length > 0 && filteredRandomUnsplashImages.length > 0 && (
-                    <div className="mb-8 md:mb-12">
-                      <div className="flex items-center justify-between mb-4 md:mb-6">
-                        <h2 className="text-xl md:text-2xl text-gray-900">
-                          {hasActiveFilters ? 'Imagini Unsplash Potrivite' : 'Imagini Populare'}
-                        </h2>
+                
+                {isLoadingUnsplash ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="animate-spin w-8 h-8 border-4 border-gray-200 border-t-[#86C2FF] rounded-full"></div>
+                  </div>
+                ) : unsplashError ? (
+                  <div className="text-center py-12 bg-gray-50 rounded-lg">
+                    <p className="text-gray-600">{unsplashError}</p>
+                  </div>
+                ) : filteredSearchUnsplashImages.length === 0 ? (
+                  <div className="text-center py-12 bg-gray-50 rounded-lg">
+                    <p className="text-gray-600">Nu au fost găsite imagini pentru această căutare</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6 mb-12">
+                    {filteredSearchUnsplashImages.map((image) => (
+                      <Link 
+                        key={image.id} 
+                        to={`/produs/unsplash-${image.id}`}
+                        onClick={() => {
+                          // Store the Unsplash image data in sessionStorage for detail page
+                          sessionStorage.setItem(`unsplash-${image.id}`, JSON.stringify(image));
+                          // Store search state so we can return to search results
+                          sessionStorage.setItem('unsplash-search-state', JSON.stringify({
+                            query: unsplashQuery,
+                            showResults: true
+                          }));
+                        }}
+                        className="group"
+                      >
+                        <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden mb-3 relative">
+                          <img
+                            src={image.urls.small}
+                            alt={image.alt_description || 'Unsplash image'}
+                            loading="lazy"
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          />
+                        </div>
+                        
+                        <h3 className="text-gray-900 group-hover:text-[#86C2FF] transition-colors line-clamp-2 mb-1 text-sm sm:text-base">
+                          {image.alt_description || image.description || 'Imagine Unsplash'}
+                        </h3>
+
+                        <p className="text-xs text-gray-500">
+                          de {image.user.name}
+                        </p>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+                
+                {/* Load More Button */}
+                {!isLoadingUnsplash && !unsplashError && hasMoreUnsplash && filteredSearchUnsplashImages.length > 0 && (
+                  <div className="text-center">
+                    <button
+                      onClick={loadMoreUnsplash}
+                      disabled={isLoadingMore}
+                      className="px-6 py-3 bg-[#7B93FF] text-white rounded-lg hover:bg-[#6A82EE] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isLoadingMore ? 'Se încarcă...' : 'Încarcă Mai Multe'}
+                    </button>
+                  </div>
+                )}
+                
+                {/* Separator - Show when there are database paintings to display */}
+                {sortedPaintings.length > 0 && (
+                  <>
+                    <div className="h-px bg-gray-200 my-8"></div>
+                    <h2 className="text-xl text-gray-900 mb-6">Tablouri Canvas din Colecția Noastră</h2>
+                  </>
+                )}
+              </div>
+            )}
+
+            {filteredRandomUnsplashImages.length === 0 && !showUnsplashResults && !isLoadingRandom ? (
+              <div className="sticky top-24 bg-white rounded-lg border border-gray-200 shadow-sm p-8 text-center">
+                <p className="text-gray-500 text-lg mb-4">Nu există tablouri pentru filtrele selectate</p>
+                <button
+                  onClick={() => {
+                    setSelectedOrientation('all');
+                    setSelectedColor('all');
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  className="px-6 py-2 bg-[#86C2FF] text-white rounded-lg hover:bg-[#6FB0EE] transition-colors"
+                >
+                  Clear Filters
+                </button>
+              </div>
+            ) : (
+              <>
+                {/* Random Unsplash Images Section - show when no search is active AND (no filters OR when filters match) */}
+                {!showUnsplashResults && randomUnsplashImages.length > 0 && filteredRandomUnsplashImages.length > 0 && (
+                  <div className="mb-8 md:mb-12">
+                    {isLoadingRandom ? (
+                      <div className="flex items-center justify-center py-12">
+                        <div className="animate-spin w-8 h-8 border-4 border-gray-200 border-t-[#86C2FF] rounded-full"></div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6 mb-6">
+                        {filteredRandomUnsplashImages.map((image) => (
+                          <Link 
+                            key={image.id} 
+                            to={`/produs/unsplash-${image.id}`}
+                            onClick={() => {
+                              sessionStorage.setItem(`unsplash-${image.id}`, JSON.stringify(image));
+                              // Store return path
+                              sessionStorage.setItem('unsplash-return-path', '/tablouri-canvas');
+                            }}
+                            className="group"
+                          >
+                            <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden mb-3 relative">
+                              <img
+                                src={image.urls.small}
+                                alt={image.alt_description || 'Unsplash image'}
+                                loading="lazy"
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                              />
+                            </div>
+                            
+                            <h3 className="text-gray-900 group-hover:text-[#86C2FF] transition-colors line-clamp-2 mb-1 text-sm sm:text-base">
+                              {image.alt_description || image.description || 'Imagine Unsplash'}
+                            </h3>
+
+                            <p className="text-xs text-gray-500">
+                              de {image.user.name}
+                            </p>
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {/* Load More Button for Random Images */}
+                    {!isLoadingRandom && hasMoreRandom && filteredRandomUnsplashImages.length > 0 && (
+                      <div className="text-center mb-8">
                         <button
-                          onClick={loadRandomCuratedImages}
-                          className="text-sm text-[#7B93FF] hover:text-[#6A82EE] flex items-center gap-1"
+                          onClick={loadMoreRandom}
+                          disabled={isLoadingMoreRandom}
+                          className="px-6 py-3 bg-[#7B93FF] text-white rounded-lg hover:bg-[#6A82EE] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          <Search className="w-4 h-4" />
-                          Încarcă altele
+                          {isLoadingMoreRandom ? 'Se încarcă...' : 'Încarcă Mai Multe'}
                         </button>
                       </div>
-                      
-                      {isLoadingRandom ? (
-                        <div className="flex items-center justify-center py-12">
-                          <div className="animate-spin w-8 h-8 border-4 border-gray-200 border-t-[#86C2FF] rounded-full"></div>
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6 mb-6">
-                          {filteredRandomUnsplashImages.map((image) => (
-                            <Link 
-                              key={image.id} 
-                              to={`/produs/unsplash-${image.id}`}
-                              onClick={() => {
-                                sessionStorage.setItem(`unsplash-${image.id}`, JSON.stringify(image));
-                                // Store return path
-                                sessionStorage.setItem('unsplash-return-path', '/tablouri-canvas');
-                              }}
-                              className="group"
-                            >
-                              <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden mb-3 relative">
-                                <img
-                                  src={image.urls.small}
-                                  alt={image.alt_description || 'Unsplash image'}
-                                  loading="lazy"
-                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                                />
-                              </div>
-                              
-                              <h3 className="text-gray-900 group-hover:text-[#86C2FF] transition-colors line-clamp-2 mb-1 text-sm sm:text-base">
-                                {image.alt_description || image.description || 'Imagine Unsplash'}
-                              </h3>
-
-                              <p className="text-xs text-gray-500">
-                                de {image.user.name}
-                              </p>
-                            </Link>
-                          ))}
-                        </div>
-                      )}
-                      
-                      {/* Load More Button for Random Images */}
-                      {!isLoadingRandom && hasMoreRandom && filteredRandomUnsplashImages.length > 0 && (
-                        <div className="text-center mb-8">
-                          <button
-                            onClick={loadMoreRandom}
-                            disabled={isLoadingMoreRandom}
-                            className="px-6 py-3 bg-[#7B93FF] text-white rounded-lg hover:bg-[#6A82EE] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {isLoadingMoreRandom ? 'Se încarcă...' : 'Încarcă Mai Multe'}
-                          </button>
-                        </div>
-                      )}
-                      
-                      {/* Only show separator if there are database paintings to show */}
-                      {sortedPaintings.length > 0 && (
-                        <>
-                          <div className="h-px bg-gray-200 my-8"></div>
-                          <h2 className="text-xl text-gray-900 mb-6">Tablouri Canvas din Colecția Noastră</h2>
-                        </>
-                      )}
+                    )}
+                    
+                    {/* Only show separator if there are database paintings to show */}
+                    {sortedPaintings.length > 0 && (
+                      <>
+                        <div className="h-px bg-gray-200 my-8"></div>
+                        <h2 className="text-xl text-gray-900 mb-6">Tablouri Canvas din Colecția Noastră</h2>
+                      </>
+                    )}
+                  </div>
+                )}
+                
+                {/* Database paintings section - only show if there are paintings */}
+                {sortedPaintings.length > 0 && (
+                  <>
+                    <div className="hidden lg:block mb-6 text-gray-600">
+                      {sortedPaintings.length} {sortedPaintings.length === 1 ? 'tablou găsit' : 'tablouri găsite'}
                     </div>
-                  )}
-                  
-                  {/* Database paintings section - only show if there are paintings */}
-                  {sortedPaintings.length > 0 && (
-                    <>
-                      <div className="hidden lg:block mb-6 text-gray-600">
-                        {sortedPaintings.length} {sortedPaintings.length === 1 ? 'tablou găsit' : 'tablouri găsite'}
-                      </div>
-                      
-                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
-                        {sortedPaintings.map((painting) => {
-                          const finalPrice = painting.price * (1 - painting.discount / 100);
-                          
-                          return (
-                            <Link 
-                              key={painting.id} 
-                              to={`/produs/${painting.id}`}
-                              className="group"
-                            >
-                              <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden mb-3 relative">
-                                <img
-                                  src={painting.imageUrls?.medium || painting.image}
-                                  alt={painting.title}
-                                  loading="lazy"
-                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                                />
-                                {painting.isBestseller && (
-                                  <span className="absolute top-2 right-2 px-2 py-1 bg-yellow-400 text-yellow-900 text-xs rounded shadow-md">
-                                    Bestseller
-                                  </span>
-                                )}
-                                {painting.discount > 0 && (
-                                  <span className="absolute top-2 left-2 px-2 py-1 bg-red-500 text-white text-xs rounded shadow-md">
-                                    -{painting.discount}%
-                                  </span>
-                                )}
-                              </div>
-                              
-                              <h3 className="text-gray-900 group-hover:text-[#86C2FF] transition-colors line-clamp-2 mb-1 text-sm sm:text-base">
-                                {painting.title}
-                              </h3>
+                    
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
+                      {sortedPaintings.map((painting) => {
+                        const finalPrice = painting.price * (1 - painting.discount / 100);
+                        
+                        return (
+                          <Link 
+                            key={painting.id} 
+                            to={`/produs/${painting.id}`}
+                            className="group"
+                          >
+                            <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden mb-3 relative">
+                              <img
+                                src={painting.imageUrls?.medium || painting.image}
+                                alt={painting.title}
+                                loading="lazy"
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                              />
+                              {painting.isBestseller && (
+                                <span className="absolute top-2 right-2 px-2 py-1 bg-yellow-400 text-yellow-900 text-xs rounded shadow-md">
+                                  Bestseller
+                                </span>
+                              )}
+                              {painting.discount > 0 && (
+                                <span className="absolute top-2 left-2 px-2 py-1 bg-red-500 text-white text-xs rounded shadow-md">
+                                  -{painting.discount}%
+                                </span>
+                              )}
+                            </div>
+                            
+                            <h3 className="text-gray-900 group-hover:text-[#86C2FF] transition-colors line-clamp-2 mb-1 text-sm sm:text-base">
+                              {painting.title}
+                            </h3>
 
-                              <div className="flex items-baseline gap-2 text-sm sm:text-base">
-                                {painting.discount > 0 ? (
-                                  <>
-                                    <span className="text-gray-900">
-                                      {finalPrice.toFixed(2)} RON
-                                    </span>
-                                    <span className="text-xs sm:text-sm text-gray-400 line-through">
-                                      {painting.price.toFixed(2)} RON
-                                    </span>
-                                  </>
-                                ) : (
+                            <div className="flex items-baseline gap-2 text-sm sm:text-base">
+                              {painting.discount > 0 ? (
+                                <>
                                   <span className="text-gray-900">
+                                    {finalPrice.toFixed(2)} RON
+                                  </span>
+                                  <span className="text-xs sm:text-sm text-gray-400 line-through">
                                     {painting.price.toFixed(2)} RON
                                   </span>
-                                )}
-                              </div>
-                            </Link>
-                          );
-                        })}
-                      </div>
-                    </>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Mobile Filter Modal */}
-      {showMobileFilters && (
-        <div className="fixed inset-0 bg-black/30 z-50 lg:hidden" onClick={() => setShowMobileFilters(false)}>
-          <div 
-            className="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl max-h-[85vh] flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Modal Header */}
-            <div className="flex items-center justify-between p-4 border-b border-gray-200 flex-shrink-0">
-              <h3 className="text-lg text-gray-900">Filtre</h3>
-              <button 
-                onClick={() => setShowMobileFilters(false)}
-                className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Scrollable Filter Content */}
-            <div className="overflow-y-auto flex-1 p-4">
-              <div className="space-y-6">
-                {/* Orientation Filter - with icons */}
-                <div>
-                  <h3 className="text-gray-900 mb-3">Orientare</h3>
-                  <div className="grid grid-cols-3 gap-2">
-                    <button
-                      onClick={() => setSelectedOrientation('all')}
-                      className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all ${
-                        selectedOrientation === 'all'
-                          ? 'border-[#86C2FF] bg-[#86C2FF]/10'
-                          : 'border-gray-200 hover:border-gray-400'
-                      }`}
-                    >
-                      <SlidersHorizontal className="w-5 h-5 text-gray-700" />
-                      <span className="text-xs text-gray-700">Toate</span>
-                    </button>
-                    <button
-                      onClick={() => setSelectedOrientation('portrait')}
-                      className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all ${
-                        selectedOrientation === 'portrait'
-                          ? 'border-[#86C2FF] bg-[#86C2FF]/10'
-                          : 'border-gray-200 hover:border-gray-400'
-                      }`}
-                    >
-                      <RectangleVertical className="w-5 h-5 text-gray-700" />
-                      <span className="text-xs text-gray-700">Portret</span>
-                    </button>
-                    <button
-                      onClick={() => setSelectedOrientation('landscape')}
-                      className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all ${
-                        selectedOrientation === 'landscape'
-                          ? 'border-[#86C2FF] bg-[#86C2FF]/10'
-                          : 'border-gray-200 hover:border-gray-400'
-                      }`}
-                    >
-                      <RectangleHorizontal className="w-5 h-5 text-gray-700" />
-                      <span className="text-xs text-gray-700">Landscape</span>
-                    </button>
-                  </div>
-                  <button
-                    onClick={() => setSelectedOrientation('square')}
-                    className={`w-full flex items-center justify-center gap-2 p-3 rounded-lg border-2 transition-all mt-2 ${
-                      selectedOrientation === 'square'
-                        ? 'border-[#86C2FF] bg-[#86C2FF]/10'
-                        : 'border-gray-200 hover:border-gray-400'
-                    }`}
-                  >
-                    <Square className="w-5 h-5 text-gray-700" />
-                    <span className="text-xs text-gray-700">Pătrat</span>
-                  </button>
-                </div>
-
-                <div className="h-px bg-gray-200"></div>
-
-                {/* Color Filter */}
-                <div>
-                  <h3 className="text-gray-900 mb-3">Culoare</h3>
-                  <div className="space-y-3">
-                    <label className="flex items-center gap-2 cursor-pointer group">
-                      <input
-                        type="radio"
-                        name="color-mobile"
-                        checked={selectedColor === 'all'}
-                        onChange={() => setSelectedColor('all')}
-                        className="w-4 h-4 text-[#86C2FF] focus:ring-[#86C2FF]"
-                      />
-                      <span className="text-sm text-gray-700 group-hover:text-gray-900">Toate Culorile</span>
-                    </label>
-                    <div className="grid grid-cols-6 gap-2">
-                      {[
-                        { name: 'Roșu', color: '#EF4444' },
-                        { name: 'Portocaliu', color: '#F97316' },
-                        { name: 'Galben', color: '#EAB308' },
-                        { name: 'Verde', color: '#22C55E' },
-                        { name: 'Albastru', color: '#3B82F6' },
-                        { name: 'Mov', color: '#A855F7' },
-                        { name: 'Roz', color: '#EC4899' },
-                        { name: 'Maro', color: '#92400E' },
-                        { name: 'Negru', color: '#000000' },
-                        { name: 'Alb', color: '#FFFFFF' },
-                        { name: 'Gri', color: '#6B7280' },
-                        { name: 'Bej', color: '#D4C5B9' },
-                      ].map((colorItem) => (
-                        <button
-                          key={colorItem.name}
-                          onClick={() => setSelectedColor(colorItem.name)}
-                          className={`w-10 h-10 rounded-full border-2 transition-all ${
-                            selectedColor === colorItem.name
-                              ? 'border-[#86C2FF] ring-2 ring-[#86C2FF] ring-offset-2'
-                              : 'border-gray-200 hover:border-gray-400'
-                          }`}
-                          style={{ backgroundColor: colorItem.color }}
-                          title={colorItem.name}
-                        />
-                      ))}
+                                </>
+                              ) : (
+                                <span className="text-gray-900">
+                                  {painting.price.toFixed(2)} RON
+                                </span>
+                              )}
+                            </div>
+                          </Link>
+                        );
+                      })}
                     </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Modal Footer with Actions */}
-            <div className="border-t border-gray-200 p-4 flex-shrink-0 space-y-2">
-              <button
-                onClick={() => {
-                  setSelectedOrientation('all');
-                  setSelectedColor('all');
-                }}
-                className="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm"
-              >
-                Clear Filters
-              </button>
-              <button
-                onClick={() => setShowMobileFilters(false)}
-                className="w-full px-4 py-3 bg-[#86C2FF] text-white rounded-lg hover:bg-[#6FB0EE] transition-colors"
-              >
-                Aplică ({sortedPaintings.length} {sortedPaintings.length === 1 ? 'tablou' : 'tablouri'})
-              </button>
-            </div>
+                  </>
+                )}
+              </>
+            )}
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 };

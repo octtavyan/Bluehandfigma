@@ -21,19 +21,13 @@ export const BlogPostPage: React.FC = () => {
       }
 
       setLoading(true);
-      console.log('🔄 Loading full blog post for slug:', slug);
       
       try {
         const fullPost = await blogPostsService.getBySlug(slug);
         
         if (fullPost && fullPost.isPublished) {
-          console.log('✅ Blog post loaded:', { 
-            title: fullPost.title, 
-            contentLength: fullPost.content?.length || 0 
-          });
           setPost(fullPost);
         } else {
-          console.log('❌ Blog post not found or not published');
           setPost(null);
         }
       } catch (error) {

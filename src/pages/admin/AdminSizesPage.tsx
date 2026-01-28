@@ -4,10 +4,9 @@ import { AdminLayout } from '../../components/admin/AdminLayout';
 import { useAdmin, CanvasSize } from '../../context/AdminContext';
 
 export const AdminSizesPage: React.FC = () => {
-  const { sizes, frameTypes, addSize, updateSize, deleteSize } = useAdmin();
+  const { sizes, addSize, updateSize, deleteSize } = useAdmin();
   const [showModal, setShowModal] = useState(false);
   const [editingSize, setEditingSize] = useState<CanvasSize | null>(null);
-  const [isMigrating, setIsMigrating] = useState(false);
   
   const [sizeForm, setSizeForm] = useState<Partial<CanvasSize>>({
     width: 0,
@@ -17,16 +16,9 @@ export const AdminSizesPage: React.FC = () => {
     isActive: true,
     supportsPrintCanvas: true,
     supportsPrintHartie: true,
-    framePrices: {},
   });
 
   const handleOpenAddModal = () => {
-    // Initialize with default frame prices
-    const defaultFramePrices: Record<string, { price: number; discount: number; availableForCanvas: boolean; availableForPrint: boolean }> = {};
-    frameTypes.forEach(ft => {
-      defaultFramePrices[ft.id] = { price: 0, discount: 0, availableForCanvas: true, availableForPrint: true };
-    });
-    
     setSizeForm({
       width: 0,
       height: 0,
@@ -35,14 +27,24 @@ export const AdminSizesPage: React.FC = () => {
       isActive: true,
       supportsPrintCanvas: true,
       supportsPrintHartie: true,
-      framePrices: defaultFramePrices,
     });
     setEditingSize(null);
     setShowModal(true);
   };
 
   const handleOpenEditModal = (size: CanvasSize) => {
+    console.log('📝 Opening edit modal for size:', size);
     setEditingSize(size);
+    setSizeForm({
+      width: size.width || 0,
+      height: size.height || 0,
+      price: size.price || 0,
+      discount: size.discount || 0,
+      isActive: size.isActive !== false,
+      supportsPrintCanvas: size.supportsPrintCanvas !== false,
+      supportsPrintHartie: size.supportsPrintHartie !== false,
+    });
+    setShowModal(true);
   };
 
   const handleSave = async () => {
@@ -50,13 +52,6 @@ export const AdminSizesPage: React.FC = () => {
       alert('Te rugăm să completezi dimensiunile și prețul');
       return;
     }
-
-    console.log('💾 [AdminSizesPage] Saving size with form data:', {
-      supportsPrintCanvas: sizeForm.supportsPrintCanvas,
-      supportsPrintHartie: sizeForm.supportsPrintHartie,
-      convertedCanvas: sizeForm.supportsPrintCanvas === true,
-      convertedHartie: sizeForm.supportsPrintHartie === true,
-    });
 
     try {
       if (editingSize) {
@@ -67,9 +62,8 @@ export const AdminSizesPage: React.FC = () => {
           price: sizeForm.price,
           discount: sizeForm.discount || 0,
           isActive: sizeForm.isActive !== false,
-          supportsPrintCanvas: sizeForm.supportsPrintCanvas === true, // Explicit boolean
-          supportsPrintHartie: sizeForm.supportsPrintHartie === true, // Explicit boolean
-          framePrices: sizeForm.framePrices || {},
+          supportsPrintCanvas: sizeForm.supportsPrintCanvas === true,
+          supportsPrintHartie: sizeForm.supportsPrintHartie === true,
         });
       } else {
         // Add new size
@@ -79,9 +73,8 @@ export const AdminSizesPage: React.FC = () => {
           price: sizeForm.price!,
           discount: sizeForm.discount || 0,
           isActive: sizeForm.isActive !== false,
-          supportsPrintCanvas: sizeForm.supportsPrintCanvas === true, // Explicit boolean
-          supportsPrintHartie: sizeForm.supportsPrintHartie === true, // Explicit boolean
-          framePrices: sizeForm.framePrices || {},
+          supportsPrintCanvas: sizeForm.supportsPrintCanvas === true,
+          supportsPrintHartie: sizeForm.supportsPrintHartie === true,
         });
       }
 
@@ -95,7 +88,6 @@ export const AdminSizesPage: React.FC = () => {
         isActive: true,
         supportsPrintCanvas: true,
         supportsPrintHartie: true,
-        framePrices: {},
       });
     } catch (error) {
       console.error('❌ Error saving size:', error);
@@ -117,30 +109,14 @@ export const AdminSizesPage: React.FC = () => {
     return discount > 0 ? price * (1 - discount / 100) : price;
   };
 
-  const updateFramePrice = (frameTypeId: string, field: 'price' | 'discount' | 'availableForCanvas' | 'availableForPrint', value: number | boolean) => {
-    setSizeForm(prev => ({
-      ...prev,
-      framePrices: {
-        ...prev.framePrices,
-        [frameTypeId]: {
-          ...(prev.framePrices?.[frameTypeId] || { price: 0, discount: 0, availableForCanvas: true, availableForPrint: true }),
-          [field]: value,
-        },
-      },
-    }));
-  };
-
   // Sort sizes by dimensions
-  const sortedSizes = [...sizes].sort((a, b) => {
-    const areaA = a.width * a.height;
-    const areaB = b.width * b.height;
-    return areaA - areaB;
-  });
-
-  // Get active frame types sorted by order
-  const activeFrameTypes = frameTypes
-    .filter(ft => ft.isActive)
-    .sort((a, b) => (a.order || 0) - (b.order || 0));
+  const sortedSizes = [...sizes]
+    .filter(size => size !== null && size !== undefined) // Filter out null/undefined values
+    .sort((a, b) => {
+      const areaA = (a.width || 0) * (a.height || 0);
+      const areaB = (b.width || 0) * (b.height || 0);
+      return areaA - areaB;
+    });
 
   return (
     <AdminLayout>
@@ -166,8 +142,8 @@ export const AdminSizesPage: React.FC = () => {
           </div>
         ) : (
           sortedSizes.map((size) => {
-            const finalPrice = calculateFinalPrice(size.price, size.discount);
-            const hasDiscount = size.discount > 0;
+            const finalPrice = calculateFinalPrice(size.price || 0, size.discount || 0);
+            const hasDiscount = (size.discount || 0) > 0;
 
             return (
               <div
@@ -217,12 +193,12 @@ export const AdminSizesPage: React.FC = () => {
                 <div className="grid grid-cols-2 gap-3 pt-3 border-t border-gray-100">
                   <div>
                     <div className="text-xs text-gray-500 mb-1">Preț Bază</div>
-                    <div className="text-gray-900">{size.price.toFixed(2)} lei</div>
+                    <div className="text-gray-900">{(size.price || 0).toFixed(2)} lei</div>
                   </div>
                   <div>
                     <div className="text-xs text-gray-500 mb-1">Discount</div>
                     <div className={hasDiscount ? 'text-red-600' : 'text-gray-900'}>
-                      {size.discount}%
+                      {size.discount || 0}%
                     </div>
                   </div>
                   <div className="col-span-2">
@@ -231,7 +207,7 @@ export const AdminSizesPage: React.FC = () => {
                       {finalPrice.toFixed(2)} lei
                       {hasDiscount && (
                         <span className="ml-2 text-sm line-through text-gray-400">
-                          {size.price.toFixed(2)} lei
+                          {(size.price || 0).toFixed(2)} lei
                         </span>
                       )}
                     </div>
@@ -278,8 +254,8 @@ export const AdminSizesPage: React.FC = () => {
                 </tr>
               ) : (
                 sortedSizes.map((size) => {
-                  const finalPrice = calculateFinalPrice(size.price, size.discount);
-                  const hasDiscount = size.discount > 0;
+                  const finalPrice = calculateFinalPrice(size.price || 0, size.discount || 0);
+                  const hasDiscount = (size.discount || 0) > 0;
 
                   return (
                     <tr
@@ -292,11 +268,11 @@ export const AdminSizesPage: React.FC = () => {
                         <div className="text-sm text-gray-900">{size.width} × {size.height} cm</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{size.price.toFixed(2)} lei</div>
+                        <div className="text-sm text-gray-900">{(size.price || 0).toFixed(2)} lei</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className={`text-sm ${hasDiscount ? 'text-red-600' : 'text-gray-900'}`}>
-                          {size.discount}%
+                          {size.discount || 0}%
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -304,7 +280,7 @@ export const AdminSizesPage: React.FC = () => {
                           {finalPrice.toFixed(2)} lei
                           {hasDiscount && (
                             <div className="text-xs line-through text-gray-400">
-                              {size.price.toFixed(2)} lei
+                              {(size.price || 0).toFixed(2)} lei
                             </div>
                           )}
                         </div>
@@ -364,7 +340,6 @@ export const AdminSizesPage: React.FC = () => {
                 isActive: true,
                 supportsPrintCanvas: true,
                 supportsPrintHartie: true,
-                framePrices: {},
               });
             }
           }}
@@ -372,7 +347,7 @@ export const AdminSizesPage: React.FC = () => {
           <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
             <div className="p-6">
               <h2 className="text-xl text-gray-900 mb-6">
-                {editingSize ? 'Editează Dimensiune' : 'Adaugă Dimensiune'}
+                {editingSize ? `Editează Dimensiune (ID: ${editingSize.id})` : 'Adaugă Dimensiune'}
               </h2>
 
               {/* Size Details Section */}
@@ -470,7 +445,7 @@ export const AdminSizesPage: React.FC = () => {
                     Tipuri de Print Suportate
                   </label>
                   <div className="space-y-2">
-                    <div className="flex items-center">
+                    <div key="print-canvas" className="flex items-center">
                       <input
                         type="checkbox"
                         id="supportsPrintCanvas"
@@ -484,7 +459,7 @@ export const AdminSizesPage: React.FC = () => {
                         Disponibil pentru Print Canvas
                       </label>
                     </div>
-                    <div className="flex items-center">
+                    <div key="print-hartie" className="flex items-center">
                       <input
                         type="checkbox"
                         id="supportsPrintHartie"
@@ -520,100 +495,6 @@ export const AdminSizesPage: React.FC = () => {
                 ) : null}
               </div>
 
-              {/* Frame Prices Section */}
-              {activeFrameTypes.length > 0 && (
-                <div className="border-t border-gray-200 pt-6">
-                  <h3 className="text-lg text-gray-900 mb-4">
-                    Prețuri Rame - {sizeForm.width} × {sizeForm.height} cm
-                  </h3>
-
-                  <div className="space-y-4">
-                    {activeFrameTypes.map((frameType) => {
-                      const framePricing = sizeForm.framePrices?.[frameType.id] || { price: 0, discount: 0, availableForCanvas: true, availableForPrint: true };
-                      const finalFramePrice = calculateFinalPrice(framePricing.price, framePricing.discount);
-                      
-                      return (
-                        <div key={frameType.id} className="bg-gray-50 rounded-lg p-4">
-                          <h4 className="text-gray-900 mb-3">{frameType.name}</h4>
-                          
-                          <div className="grid grid-cols-2 gap-4">
-                            <div>
-                              <label className="block text-sm text-gray-700 mb-1">
-                                Preț Ramă (lei)
-                              </label>
-                              <input
-                                type="number"
-                                value={framePricing.price || 0}
-                                onChange={(e) =>
-                                  updateFramePrice(frameType.id, 'price', parseFloat(e.target.value) || 0)
-                                }
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                step="0.01"
-                                min="0"
-                              />
-                            </div>
-
-                            <div>
-                              <label className="block text-sm text-gray-700 mb-1">
-                                Discount (%)
-                              </label>
-                              <input
-                                type="number"
-                                value={framePricing.discount || 0}
-                                onChange={(e) =>
-                                  updateFramePrice(frameType.id, 'discount', parseInt(e.target.value) || 0)
-                                }
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                min="0"
-                                max="100"
-                              />
-                            </div>
-                          </div>
-
-                          {/* Availability Checkboxes */}
-                          <div className="mt-3 flex items-center gap-6">
-                            <label className="flex items-center gap-2 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={framePricing.availableForCanvas !== false}
-                                onChange={(e) =>
-                                  updateFramePrice(frameType.id, 'availableForCanvas', e.target.checked)
-                                }
-                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                              />
-                              <span className="text-sm text-gray-700">Disponibil pentru Canvas</span>
-                            </label>
-                            
-                            <label className="flex items-center gap-2 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={framePricing.availableForPrint !== false}
-                                onChange={(e) =>
-                                  updateFramePrice(frameType.id, 'availableForPrint', e.target.checked)
-                                }
-                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                              />
-                              <span className="text-sm text-gray-700">Disponibil pentru Print</span>
-                            </label>
-                          </div>
-
-                          {framePricing.price > 0 && (
-                            <div className="mt-3 text-sm text-gray-600">
-                              Preț Final Ramă: <span className="text-blue-600">{finalFramePrice.toFixed(2)} lei</span>
-                              {framePricing.discount > 0 && (
-                                <span className="ml-2 line-through text-gray-400">
-                                  {framePricing.price.toFixed(2)} lei
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
               {/* Action Buttons */}
               <div className="flex justify-end space-x-3 mt-6 pt-4 border-t border-gray-200">
                 <button
@@ -626,7 +507,8 @@ export const AdminSizesPage: React.FC = () => {
                       price: 0,
                       discount: 0,
                       isActive: true,
-                      framePrices: {},
+                      supportsPrintCanvas: true,
+                      supportsPrintHartie: true,
                     });
                   }}
                   className="px-6 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"

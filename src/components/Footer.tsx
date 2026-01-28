@@ -4,6 +4,7 @@ import { Facebook, Instagram, Mail, Phone, MapPin, MessageCircle } from 'lucide-
 import logoImage from 'figma:asset/e13722fae17f2ce12beb5ca6d76372429e2ea412.png';
 import anpcLogo from 'figma:asset/eae8b3109dc56d840e1f79f2c33eef2a480957ea.png';
 import solLogo from 'figma:asset/25913da363cd6c42f8a4a62602c125c85410c64f.png';
+import paymentLogos from 'figma:asset/904749046e1558a5005b49778d2070c96433a86b.png';
 
 export const Footer: React.FC = () => {
   return (
@@ -140,7 +141,7 @@ export const Footer: React.FC = () => {
 
         <div className="border-t border-gray-200 mt-8 pt-8">
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 flex-wrap justify-center md:justify-start">
               <a 
                 href="https://anpc.ro/ce-este-sal/" 
                 target="_blank" 
@@ -165,6 +166,13 @@ export const Footer: React.FC = () => {
                   className="h-12 w-auto"
                 />
               </a>
+              <div className="flex items-center">
+                <img 
+                  src={paymentLogos} 
+                  alt="Netopia Payments - Mastercard - Visa" 
+                  className="h-12 w-auto"
+                />
+              </div>
             </div>
             <p className="text-center text-sm text-gray-600">&copy; 2024 BlueHand. Toate drepturile rezervate.</p>
           </div>

@@ -46,7 +46,7 @@ export const AdminUnsplashPage: React.FC = () => {
         });
       }
     } catch (error) {
-      console.log('Error loading settings (using defaults):', error);
+      // Error loading settings - use defaults
     }
   };
 

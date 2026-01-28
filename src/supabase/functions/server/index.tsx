@@ -90,6 +90,107 @@ app.post("/make-server-bbc0c500/cloudinary/settings", async (c) => {
   }
 });
 
+// Get Netopia settings
+app.get("/make-server-bbc0c500/netopia/settings", async (c) => {
+  try {
+    const settings = await kv.get('netopia_settings');
+    return c.json({ 
+      success: true, 
+      settings: settings || {
+        merchantId: '',
+        apiKey: '',
+        posSignature: '',
+        publicKey: '',
+        isLive: false,
+        isConfigured: false
+      }
+    });
+  } catch (error) {
+    console.error('Error getting Netopia settings:', error);
+    return c.json({ success: false, error: 'Failed to get settings' }, 500);
+  }
+});
+
+// Save Netopia settings
+app.post("/make-server-bbc0c500/netopia/settings", async (c) => {
+  try {
+    const settings = await c.req.json();
+    
+    // Add isConfigured flag based on required fields
+    // Public Key and POS Signature are required; Private Key (apiKey) is optional
+    const isConfigured = !!(settings.posSignature && settings.publicKey);
+    
+    // Ensure isLive is a boolean (defaults to false for sandbox)
+    const settingsToSave = {
+      ...settings,
+      isLive: settings.isLive === true,
+      isConfigured
+    };
+    
+    await kv.set('netopia_settings', settingsToSave);
+    
+    console.log(`✅ Netopia settings saved. Configured: ${isConfigured}, Mode: ${settingsToSave.isLive ? 'LIVE' : 'TEST'}`);
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Error saving Netopia settings:', error);
+    return c.json({ success: false, error: 'Failed to save settings' }, 500);
+  }
+});
+
+// Test Netopia connection
+app.post("/make-server-bbc0c500/netopia/test", async (c) => {
+  try {
+    const settings = await kv.get<{
+      merchantId: string;
+      apiKey: string;
+      posSignature: string;
+      publicKey: string;
+      isLive: boolean;
+      isConfigured: boolean;
+    }>('netopia_settings');
+
+    if (!settings || !settings.posSignature || !settings.publicKey) {
+      return c.json({ 
+        success: false, 
+        error: 'Netopia settings not configured. Please save your POS Signature and Public Key first.' 
+      }, 400);
+    }
+
+    // For now, just verify that settings exist
+    // Netopia doesn't have a simple "test connection" endpoint
+    // The real test will happen when initiating an actual payment
+    
+    const environment = settings.isLive ? 'live' : 'sandbox';
+    const baseUrl = settings.isLive 
+      ? 'https://secure.netopia-payments.com' 
+      : 'https://secure.sandbox.netopia-payments.com';
+
+    console.log(`✅ Netopia settings validated for ${environment} environment`);
+    console.log(`🔗 Base URL: ${baseUrl}`);
+    console.log(`🔑 API Key configured: ${settings.apiKey ? 'Yes' : 'No'}`);
+    console.log(`🔑 POS Signature configured: ${settings.posSignature ? 'Yes' : 'No'}`);
+    console.log(`🔑 Public Key configured: ${settings.publicKey ? 'Yes' : 'No'}`);
+
+    return c.json({ 
+      success: true, 
+      message: `Configurare validată! Environment: ${environment.toUpperCase()}. Pentru a testa plata efectiv, plasează o comandă de test.`,
+      environment: environment,
+      baseUrl: baseUrl,
+      hasApiKey: !!settings.apiKey,
+      hasPosSignature: !!settings.posSignature,
+      hasPublicKey: !!settings.publicKey
+    });
+
+  } catch (error) {
+    console.error('Error testing Netopia connection:', error);
+    return c.json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error occurred' 
+    }, 500);
+  }
+});
+
 // Send test email using Resend
 app.post("/make-server-bbc0c500/email/test", async (c) => {
   try {
@@ -480,10 +581,6 @@ app.post("/make-server-bbc0c500/email/send-shipped-confirmation", async (c) => {
           </head>
           <body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f5f5f5;">
             <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff;">
-              <!-- Header -->
-              <div style="background-color: #10b981; padding: 30px 20px; text-align: center;">
-                <h1 style="color: #ffffff; margin: 0; font-size: 28px;">📦 Comanda Ta Este În Drum!</h1>
-              </div>
               
               <!-- Content -->
               <div style="padding: 40px 20px;">
@@ -498,7 +595,7 @@ app.post("/make-server-bbc0c500/email/send-shipped-confirmation", async (c) => {
                     <strong>Număr comandă:</strong> #${orderNumber}
                   </p>
                   <p style="margin: 10px 0 0 0; color: #333;">
-                    <strong>Status:</strong> <span style="color: #10b981; font-weight: bold;">✓ LIVRAT (În tranzit)</span>
+                    <strong>Status:</strong> <span style="color: #10b981; font-weight: bold;">✓ Expediată (În tranzit)</span>
                   </p>
                 </div>
                 
@@ -645,6 +742,538 @@ app.post("/make-server-bbc0c500/admin/update-default-users", async (c) => {
 
 // ===== LEGAL PAGES KV ROUTES =====
 
+// ===== NETOPIA PAYMENTS INTEGRATION =====
+
+// Initiate Netopia payment
+app.post("/make-server-bbc0c500/netopia/start-payment", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { orderId, amount, customerEmail, customerName, returnUrl } = body;
+
+    if (!orderId || !amount || !customerEmail || !customerName) {
+      return c.json({ 
+        success: false, 
+        error: 'Missing required fields: orderId, amount, customerEmail, customerName' 
+      }, 400);
+    }
+
+    // Get Netopia settings from KV store
+    const settings = await kv.get<{
+      posSignature: string;
+      apiKey: string;
+      publicKey: string;
+      isLive: boolean;
+      isConfigured: boolean;
+    }>('netopia_settings');
+
+    if (!settings || !settings.posSignature || !settings.publicKey || !settings.isConfigured) {
+      console.error('❌ Netopia settings not configured');
+      return c.json({ 
+        success: false, 
+        error: 'Netopia payment gateway not configured. Please contact support.' 
+      }, 500);
+    }
+
+    // Get API key from environment (sandbox requires API key authentication)
+    const netopiaSandboxApiKey = Deno.env.get('NETOPIA_API_KEY');
+    
+    if (!settings.isLive && !netopiaSandboxApiKey) {
+      console.error('❌ Netopia sandbox API key not configured');
+      return c.json({ 
+        success: false, 
+        error: 'Netopia sandbox API key not configured. Please contact support.' 
+      }, 500);
+    }
+
+    // Determine API endpoint based on environment
+    const environment = settings.isLive ? 'live' : 'sandbox';
+    const baseUrl = settings.isLive 
+      ? 'https://secure.netopia-payments.com'
+      : 'https://secure.sandbox.netopia-payments.com';
+
+    console.log(`💳 Initiating Netopia payment for order ${orderId}, amount: ${amount} RON`);
+    console.log(`🔗 Using environment: ${environment}`);
+    console.log(`🔗 Base URL: ${baseUrl}`);
+    console.log(`🔑 POS Signature being used: "${settings.posSignature}"`);
+    console.log(`🔑 POS Signature length: ${settings.posSignature.length} characters`);
+    if (!settings.isLive && netopiaSandboxApiKey) {
+      console.log(`🔑 API Key configured: ${netopiaSandboxApiKey.substring(0, 10)}...`);
+    }
+
+    // Parse customer name
+    const nameParts = customerName.trim().split(' ');
+    const firstName = nameParts[0] || 'Client';
+    const lastName = nameParts.slice(1).join(' ') || 'BlueHand';
+
+    // Create timestamp
+    const date = new Date();
+    const timestamp = date.getTime();
+
+    // Get the base URL for callbacks
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
+    const projectUrl = supabaseUrl.replace('https://', '');
+
+    // Prepare payment data according to Netopia XML structure
+    const paymentData = {
+      order: {
+        $: {
+          id: orderId,
+          timestamp: timestamp,
+          type: "card",
+        },
+        signature: settings.posSignature,
+        url: {
+          return: returnUrl || `https://${projectUrl.split('.')[0]}.supabase.co/payment-success?orderId=${orderId}`,
+          confirm: `https://${projectUrl}/functions/v1/make-server-bbc0c500/netopia/ipn`,
+        },
+        invoice: {
+          $: {
+            currency: "RON",
+            amount: amount,
+          },
+          details: `Comanda BlueHand Canvas #${orderId}`,
+          contact_info: {
+            billing: {
+              $: {
+                type: "person",
+              },
+              first_name: firstName,
+              last_name: lastName,
+              address: "Romania",
+              email: customerEmail,
+              mobile_phone: "",
+            },
+            shipping: {
+              $: {
+                type: "person",
+              },
+              first_name: firstName,
+              last_name: lastName,
+              address: "Romania",
+              email: customerEmail,
+              mobile_phone: "",
+            },
+          },
+        },
+        ipn_cipher: "aes-256-cbc",
+      },
+    };
+
+    console.log(`📝 Payment data prepared:`, JSON.stringify(paymentData, null, 2));
+
+    // Import required libraries for XML building and encryption
+    const { Builder } = await import('npm:xml2js@0.6.2');
+    const crypto = await import('node:crypto');
+    const forgeModule = await import('npm:node-forge@1.3.1');
+    // node-forge may export as default or named, handle both
+    const forge = forgeModule.default || forgeModule;
+    
+    // Build XML from payment data
+    const builder = new Builder({ cdata: true });
+    const xml = builder.buildObject(paymentData);
+    
+    console.log(`📄 Generated XML:`);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log(xml);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log(`📏 XML length: ${xml.length} characters`);
+    
+    // Encrypt the payment data
+    // 1. Generate random AES key and IV
+    const aesKey = crypto.randomBytes(32);
+    const iv = crypto.randomBytes(16);
+
+    // 2. Encrypt XML with AES-256-CBC
+    const cipher = crypto.createCipheriv('aes-256-cbc', aesKey, iv);
+    let encryptedData = cipher.update(xml, 'utf8', 'base64');
+    encryptedData += cipher.final('base64');
+
+    // 3. Encrypt AES key with RSA public key
+    // Handle both PKCS#1 (RSA PUBLIC KEY) and PKCS#8 (PUBLIC KEY) formats
+    let publicKeyFormatted = settings.publicKey;
+    
+    console.log('🔑 Public key format check...');
+    console.log('Key length:', publicKeyFormatted.length);
+    console.log('Key preview (first 100 chars):', publicKeyFormatted.substring(0, 100));
+    console.log('Key preview (last 50 chars):', publicKeyFormatted.substring(publicKeyFormatted.length - 50));
+    console.log('Contains "BEGIN RSA PUBLIC KEY":', publicKeyFormatted.includes('BEGIN RSA PUBLIC KEY'));
+    console.log('Contains "BEGIN PUBLIC KEY":', publicKeyFormatted.includes('BEGIN PUBLIC KEY'));
+    console.log('Contains "BEGIN CERTIFICATE":', publicKeyFormatted.includes('BEGIN CERTIFICATE'));
+    
+    // Convert PKCS#1 to PKCS#8 if needed using node-forge
+    if (publicKeyFormatted.includes('BEGIN RSA PUBLIC KEY')) {
+      console.log('🔄 Converting RSA PUBLIC KEY (PKCS#1) to PUBLIC KEY (PKCS#8)...');
+      try {
+        // Parse PKCS#1 key
+        const publicKeyPem = publicKeyFormatted.trim();
+        console.log('Attempting to parse with node-forge...');
+        const publicKeyForge = forge.pki.publicKeyFromPem(publicKeyPem);
+        console.log('✅ Parsed successfully with node-forge');
+        
+        // Convert to PKCS#8 (SubjectPublicKeyInfo)
+        const publicKeyAsn1 = forge.pki.publicKeyToAsn1(publicKeyForge);
+        const publicKeyInfo = forge.pki.wrapRsaPublicKey(publicKeyAsn1);
+        publicKeyFormatted = forge.pki.publicKeyInfoToPem(publicKeyInfo);
+        
+        console.log('✅ Key converted successfully');
+        console.log('New key preview (first 100 chars):', publicKeyFormatted.substring(0, 100));
+      } catch (conversionError) {
+        console.error('❌ Key conversion failed:', conversionError);
+        return c.json({
+          success: false,
+          error: `Failed to convert public key format: ${conversionError instanceof Error ? conversionError.message : 'Unknown error'}`
+        }, 500);
+      }
+    } else if (publicKeyFormatted.includes('BEGIN CERTIFICATE')) {
+      console.log('🔄 Extracting public key from certificate...');
+      try {
+        // Parse certificate and extract public key
+        const cert = forge.pki.certificateFromPem(publicKeyFormatted.trim());
+        const publicKeyForge = cert.publicKey;
+        
+        // Convert public key directly to PEM (PKCS#8 format)
+        publicKeyFormatted = forge.pki.publicKeyToPem(publicKeyForge);
+        
+        console.log('✅ Public key extracted from certificate');
+        console.log('New key preview (first 100 chars):', publicKeyFormatted.substring(0, 100));
+      } catch (certError) {
+        console.error('❌ Certificate parsing failed:', certError);
+        return c.json({
+          success: false,
+          error: `Failed to extract public key from certificate: ${certError instanceof Error ? certError.message : 'Unknown error'}`
+        }, 500);
+      }
+    } else if (!publicKeyFormatted.includes('BEGIN PUBLIC KEY')) {
+      console.error('❌ Invalid public key format. Must be PEM format.');
+      return c.json({
+        success: false,
+        error: 'Invalid public key format. Please upload a PEM-formatted public key (BEGIN PUBLIC KEY, BEGIN RSA PUBLIC KEY, or BEGIN CERTIFICATE)'
+      }, 500);
+    } else {
+      console.log('✅ Key is already in PKCS#8 format (BEGIN PUBLIC KEY)');
+    }
+
+    let encryptedKey;
+    try {
+      console.log('🔐 Attempting RSA encryption...');
+      encryptedKey = crypto.publicEncrypt(
+        {
+          key: publicKeyFormatted,
+          padding: crypto.constants.RSA_PKCS1_PADDING
+        },
+        aesKey
+      );
+      console.log('✅ AES key encrypted successfully with RSA public key');
+    } catch (encryptError) {
+      console.error('❌ RSA encryption failed:', encryptError);
+      console.error('Key that failed (first 200 chars):', publicKeyFormatted.substring(0, 200));
+      return c.json({
+        success: false,
+        error: `Failed to encrypt payment data: ${encryptError instanceof Error ? encryptError.message : 'RSA encryption error'}. Please verify your public key is correct.`
+      }, 500);
+    }
+
+    const encryptedPayload = {
+      env_key: encryptedKey.toString('base64'),
+      data: encryptedData,
+      iv: iv.toString('base64'),
+      cipher: 'aes-256-cbc'
+    };
+
+    console.log(`🔐 Payment data encrypted successfully`);
+    
+    // Store payment info in KV for tracking
+    await kv.set(`netopia_payment:${orderId}`, {
+      orderId,
+      amount,
+      currency: 'RON',
+      status: 'pending',
+      customerEmail,
+      customerName,
+      timestamp,
+      createdAt: new Date().toISOString(),
+    });
+
+    // Make server-to-server API call to Netopia with Authorization header
+    const paymentUrl = `${baseUrl}/payment/card/start`;
+    
+    console.log(`🔗 Payment URL: ${paymentUrl}`);
+    console.log(`🚀 Making server-to-server API call to Netopia...`);
+    console.log(`🔑 API Key (first 20 chars): ${netopiaSandboxApiKey?.substring(0, 20)}...`);
+    
+    try {
+      // Netopia expects JSON format with merchant identification
+      // Try multiple possible field names for POS identification
+      const requestBody = {
+        env_key: encryptedPayload.env_key,
+        data: encryptedPayload.data,
+        // Try different possible field names for merchant identification
+        posSignature: settings.posSignature,
+        signature: settings.posSignature,
+        ntpID: settings.posSignature,
+        apiKey: settings.posSignature,
+        config: {
+          language: 'ro',  // Romanian language
+          notifyUrl: `https://${projectUrl}/functions/v1/make-server-bbc0c500/netopia/ipn`,
+          redirectUrl: returnUrl || `https://${projectUrl.split('.')[0]}.supabase.co/payment-success?orderId=${orderId}`
+        }
+      };
+      
+      console.log('📤 Sending request to Netopia:');
+      console.log('  env_key length:', encryptedPayload.env_key.length);
+      console.log('  data length:', encryptedPayload.data.length);
+      console.log('  POS Signature:', settings.posSignature);
+      console.log('  POS Signature length:', settings.posSignature.length);
+      console.log('  Request format: application/json');
+      console.log('  Authorization header:', netopiaSandboxApiKey ? `Present (${netopiaSandboxApiKey.substring(0, 20)}...)` : 'Not present');
+      console.log('  Full request body keys:', Object.keys(requestBody));
+      console.log('  Full request body:', JSON.stringify(requestBody, null, 2));
+      
+      // Make POST request to Netopia with Authorization header and JSON body
+      const netopiaResponse = await fetch(paymentUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          // Add Authorization header with API key for sandbox
+          ...(netopiaSandboxApiKey && !settings.isLive ? {
+            'Authorization': netopiaSandboxApiKey
+          } : {})
+        },
+        body: JSON.stringify(requestBody),
+      });
+      
+      console.log(`📥 Netopia response status: ${netopiaResponse.status}`);
+      console.log(`📥 Netopia response headers:`);
+      netopiaResponse.headers.forEach((value, key) => {
+        console.log(`  ${key}: ${value}`);
+      });
+      
+      if (!netopiaResponse.ok) {
+        const errorText = await netopiaResponse.text();
+        console.error(`❌ Netopia API error (${netopiaResponse.status}):`, errorText);
+        
+        // Log the full error details
+        console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.error('FULL ERROR RESPONSE FROM NETOPIA:');
+        console.error('Status:', netopiaResponse.status);
+        console.error('Status Text:', netopiaResponse.statusText);
+        console.error('Response Body:', errorText);
+        console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        
+        // Try to parse JSON error
+        try {
+          const errorJson = JSON.parse(errorText);
+          console.error('Parsed error JSON:', JSON.stringify(errorJson, null, 2));
+          
+          // Return detailed error to frontend
+          return c.json({
+            success: false,
+            error: `Netopia payment error: ${errorJson.message || errorJson.error || errorText}`,
+            details: errorJson
+          }, 500);
+        } catch {
+          // Not JSON, return raw error
+          return c.json({
+            success: false,
+            error: `Netopia payment error (${netopiaResponse.status}): ${errorText}`,
+            rawError: errorText
+          }, 500);
+        }
+      }
+      
+      // Check if response is a redirect (3xx status or Location header)
+      const locationHeader = netopiaResponse.headers.get('Location');
+      if (locationHeader) {
+        console.log(`✅ Netopia redirect URL: ${locationHeader}`);
+        return c.json({
+          success: true,
+          redirectUrl: locationHeader,
+          orderId,
+          message: 'Payment initialized successfully',
+        });
+      }
+      
+      // Check if response is JSON with a payment URL
+      const contentType = netopiaResponse.headers.get('Content-Type');
+      if (contentType?.includes('application/json')) {
+        const responseData = await netopiaResponse.json();
+        console.log(`✅ Netopia JSON response:`, JSON.stringify(responseData, null, 2));
+        
+        if (responseData.paymentUrl || responseData.redirect_url || responseData.url) {
+          const redirectUrl = responseData.paymentUrl || responseData.redirect_url || responseData.url;
+          return c.json({
+            success: true,
+            redirectUrl,
+            orderId,
+            message: 'Payment initialized successfully',
+          });
+        }
+      }
+      
+      // Otherwise, response body might be HTML with redirect or the payment page itself
+      const responseText = await netopiaResponse.text();
+      console.log(`📄 Netopia response (first 500 chars):`, responseText.substring(0, 500));
+      
+      // Check if it's an HTML redirect
+      const metaRedirectMatch = responseText.match(/<meta[^>]*http-equiv=["']refresh["'][^>]*content=["'][^"']*url=([^"']+)["']/i);
+      if (metaRedirectMatch) {
+        const redirectUrl = metaRedirectMatch[1];
+        console.log(`✅ Found meta redirect: ${redirectUrl}`);
+        return c.json({
+          success: true,
+          redirectUrl,
+          orderId,
+          message: 'Payment initialized successfully',
+        });
+      }
+      
+      // If no redirect found, return error
+      console.error('❌ No redirect URL found in Netopia response');
+      return c.json({
+        success: false,
+        error: 'Netopia did not return a payment URL. Please check configuration.'
+      }, 500);
+      
+    } catch (fetchError) {
+      console.error('❌ Error calling Netopia API:', fetchError);
+      return c.json({
+        success: false,
+        error: `Failed to connect to Netopia: ${fetchError instanceof Error ? fetchError.message : 'Unknown error'}`
+      }, 500);
+    }
+
+  } catch (error) {
+    console.error('❌ Error initiating Netopia payment:', error);
+    return c.json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error occurred' 
+    }, 500);
+  }
+});
+
+// Netopia IPN (Instant Payment Notification) endpoint
+app.post("/make-server-bbc0c500/netopia/ipn", async (c) => {
+  try {
+    const body = await c.req.json();
+    console.log(`🔔 Received Netopia IPN:`, JSON.stringify(body, null, 2));
+
+    // Extract payment info from IPN
+    const { ntpID, status, amount, errorMessage } = body;
+
+    if (!ntpID) {
+      console.error('❌ Missing ntpID in IPN');
+      return c.json({ success: false, error: 'Missing ntpID' }, 400);
+    }
+
+    // Extract orderId from ntpID (format: orderId-timestamp)
+    const orderId = ntpID.split('-')[0];
+
+    // Update payment status in KV
+    const paymentData = await kv.get(`netopia_payment:${orderId}`);
+    
+    if (paymentData) {
+      await kv.set(`netopia_payment:${orderId}`, {
+        ...paymentData,
+        status,
+        amount,
+        errorMessage,
+        updatedAt: new Date().toISOString()
+      });
+    }
+
+    // Import Supabase client to update order payment status
+    const { createClient } = await import('npm:@supabase/supabase-js@2.39.7');
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    );
+
+    // Update order payment status based on IPN status
+    if (status === 'confirmed' || status === 'paid' || status === 'completed') {
+      console.log(`✅ Payment confirmed for order ${orderId}`);
+      
+      // Update order payment status to 'paid'
+      const { error: updateError } = await supabase
+        .from('orders')
+        .update({ 
+          payment_status: 'paid',
+          updated_at: new Date().toISOString()
+        })
+        .eq('order_number', orderId);
+
+      if (updateError) {
+        console.error(`❌ Failed to update order ${orderId}:`, updateError);
+      } else {
+        console.log(`✅ Order ${orderId} marked as paid`);
+      }
+    } else if (status === 'failed' || status === 'canceled' || status === 'error') {
+      console.log(`❌ Payment failed/canceled for order ${orderId}: ${errorMessage || 'Unknown error'}`);
+      
+      // Keep payment status as unpaid
+      console.log(`📝 Order ${orderId} remains unpaid`);
+    }
+
+    // Always return success to Netopia
+    return c.json({ success: true });
+
+  } catch (error) {
+    console.error('❌ Error processing Netopia IPN:', error);
+    // Still return success to prevent Netopia from retrying
+    return c.json({ success: true });
+  }
+});
+
+// Check payment status
+app.get("/make-server-bbc0c500/netopia/status/:orderId", async (c) => {
+  try {
+    const orderId = c.req.param('orderId');
+    
+    if (!orderId) {
+      return c.json({ success: false, error: 'Order ID required' }, 400);
+    }
+
+    // Get payment data from KV
+    const paymentData = await kv.get<{
+      ntpID: string;
+      orderId: string;
+      amount: number;
+      status: string;
+      errorMessage?: string;
+      createdAt: string;
+      updatedAt?: string;
+    }>(`netopia_payment:${orderId}`);
+
+    if (!paymentData) {
+      return c.json({ 
+        success: false, 
+        error: 'Payment not found',
+        status: 'not_found' 
+      }, 404);
+    }
+
+    console.log(`📊 Payment status for order ${orderId}:`, paymentData.status);
+
+    return c.json({ 
+      success: true, 
+      status: paymentData.status,
+      amount: paymentData.amount,
+      errorMessage: paymentData.errorMessage,
+      createdAt: paymentData.createdAt,
+      updatedAt: paymentData.updatedAt
+    });
+
+  } catch (error) {
+    console.error('❌ Error checking payment status:', error);
+    return c.json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error occurred' 
+    }, 500);
+  }
+});
+
+// ===== LEGAL PAGES KV ROUTES =====
+
 // Health check for KV store
 app.get("/make-server-bbc0c500/kv/health", async (c) => {
   try {
@@ -664,6 +1293,72 @@ app.get("/make-server-bbc0c500/kv/health", async (c) => {
     return c.json({ 
       status: 'error',
       error: error instanceof Error ? error.message : 'KV store error' 
+    }, 500);
+  }
+});
+
+// Generic KV GET endpoint - accepts key as query parameter
+app.get("/make-server-bbc0c500/kv/get", async (c) => {
+  try {
+    const key = c.req.query('key');
+    
+    if (!key) {
+      return c.json({ 
+        success: false,
+        error: 'Missing key parameter' 
+      }, 400);
+    }
+    
+    console.log(`📖 Getting KV value for key: ${key}`);
+    const value = await kv.get(key);
+    console.log(`✅ KV value retrieved:`, value ? 'Found' : 'Not found');
+    
+    return c.json({ 
+      success: true,
+      value: value || null 
+    });
+  } catch (error) {
+    console.error('❌ Error getting KV value:', error);
+    return c.json({ 
+      success: false,
+      value: null,
+      error: error instanceof Error ? error.message : 'Failed to get value' 
+    }, 500);
+  }
+});
+
+// Generic KV SET endpoint - accepts key as query parameter and value in body
+app.post("/make-server-bbc0c500/kv/set", async (c) => {
+  try {
+    const key = c.req.query('key');
+    
+    if (!key) {
+      return c.json({ 
+        success: false,
+        error: 'Missing key parameter' 
+      }, 400);
+    }
+    
+    const body = await c.req.json();
+    const { value } = body;
+    
+    if (value === undefined) {
+      return c.json({ 
+        success: false,
+        error: 'Missing value in request body' 
+      }, 400);
+    }
+    
+    console.log(`💾 Setting KV value for key: ${key}`);
+    await kv.set(key, value);
+    console.log(`✅ KV value saved successfully`);
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('❌ Error setting KV value:', error);
+    return c.json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Failed to set value' 
     }, 500);
   }
 });

@@ -6,33 +6,7 @@ import { CacheService, CACHE_KEYS } from './cacheService';
 
 // ===== TYPES =====
 
-export interface Painting {
-  id: string;
-  title: string;
-  slug?: string;
-  category: string;
-  subcategory?: string;
-  description?: string;
-  image: string;
-  imageUrls?: {
-    original: string;
-    medium: string;
-    thumbnail: string;
-  };
-  availableSizes: string[]; // Array of size IDs
-  price: number;
-  discount: number;
-  isActive: boolean;
-  isBestseller?: boolean;
-  createdAt?: string;
-  orientation?: 'portrait' | 'landscape' | 'square';
-  dominantColor?: string;
-  printTypes?: ('Print Hartie' | 'Print Canvas')[];
-  frameTypesByPrintType?: {
-    'Print Hartie': string[];
-    'Print Canvas': string[];
-  };
-}
+// REMOVED: Painting interface - using Unsplash only
 
 export interface Category {
   id: string;
@@ -149,171 +123,6 @@ export interface BlogPost {
   createdAt: string;
   updatedAt: string;
 }
-
-// ===== PAINTINGS SERVICE =====
-
-export const paintingsService = {
-  async getAll(): Promise<Painting[]> {
-    console.log('🔄 Fetching paintings from Supabase...');
-    
-    try {
-      // Use abortSignal with timeout to prevent hanging queries
-      const abortController = new AbortController();
-      const timeoutId = setTimeout(() => abortController.abort(), 30000); // Increased to 30 second timeout
-      
-      const { data, error } = await supabase
-        .from('paintings')
-        .select('id, title, category, subcategory, description, image, image_urls, available_sizes, price, discount, is_active, is_bestseller, created_at, orientation, dominant_color, print_types, frame_types_by_print_type')
-        .eq('is_active', true)
-        .order('created_at', { ascending: false })
-        .limit(50) // Reduced from 100 to 50 for faster queries
-        .abortSignal(abortController.signal);
-
-      clearTimeout(timeoutId);
-
-      if (error) {
-        // Check if it's a timeout or abort error
-        if (error.message?.includes('aborted') || error.code === '57014') {
-          console.warn('⚠️ Paintings query timeout - silently continuing with Unsplash gallery only');
-          return [];
-        }
-        
-        // Check if it's a "table doesn't exist" error
-        if (error.message?.includes('relation') || error.message?.includes('does not exist') || error.code === 'PGRST116') {
-          console.log('ℹ️ Paintings table not found (OK - using Unsplash gallery)');
-          return [];
-        }
-        
-        // Only log real errors (not table missing errors)
-        console.error('❌ Error fetching paintings:', error);
-        return [];
-      }
-
-      console.log(`✅ Fetched ${data?.length || 0} paintings from Supabase`);
-
-      return (data || []).map(p => ({
-        id: p.id,
-        title: p.title,
-        slug: p.title?.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || '', // Generate slug from title
-        category: p.category,
-        subcategory: p.subcategory || '',
-        description: p.description,
-        image: p.image,
-        imageUrls: p.image_urls,
-        availableSizes: p.available_sizes || [],
-        price: p.price,
-        discount: p.discount || 0,
-        isActive: p.is_active,
-        isBestseller: p.is_bestseller || false,
-        createdAt: p.created_at,
-        orientation: p.orientation,
-        dominantColor: p.dominant_color,
-        printTypes: p.print_types || [],
-        frameTypesByPrintType: p.frame_types_by_print_type || { 'Print Hartie': [], 'Print Canvas': [] }
-      }));
-    } catch (error: any) {
-      console.error('❌ Exception fetching paintings:', error);
-      return [];
-    }
-  },
-
-  async create(painting: Omit<Painting, 'id' | 'createdAt'>): Promise<Painting | null> {
-    const { data, error } = await supabase
-      .from('paintings')
-      .insert([{
-        title: painting.title,
-        category: painting.category,
-        subcategory: painting.subcategory,
-        description: painting.description,
-        image: painting.image,
-        image_urls: painting.imageUrls,
-        available_sizes: painting.availableSizes,
-        price: painting.price,
-        discount: painting.discount,
-        is_active: painting.isActive,
-        is_bestseller: painting.isBestseller,
-        orientation: painting.orientation,
-        dominant_color: painting.dominantColor,
-        print_types: painting.printTypes,
-        frame_types_by_print_type: painting.frameTypesByPrintType
-      }])
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Error creating painting:', error);
-      return null;
-    }
-
-    return data ? this.mapFromDB(data) : null;
-  },
-
-  async update(id: string, updates: Partial<Painting>): Promise<boolean> {
-    const dbUpdates: any = {};
-    if (updates.title !== undefined) dbUpdates.title = updates.title;
-    if (updates.category !== undefined) dbUpdates.category = updates.category;
-    if (updates.subcategory !== undefined) dbUpdates.subcategory = updates.subcategory;
-    if (updates.description !== undefined) dbUpdates.description = updates.description;
-    if (updates.image !== undefined) dbUpdates.image = updates.image;
-    if (updates.imageUrls !== undefined) dbUpdates.image_urls = updates.imageUrls;
-    if (updates.availableSizes !== undefined) dbUpdates.available_sizes = updates.availableSizes;
-    if (updates.price !== undefined) dbUpdates.price = updates.price;
-    if (updates.discount !== undefined) dbUpdates.discount = updates.discount;
-    if (updates.isActive !== undefined) dbUpdates.is_active = updates.isActive;
-    if (updates.isBestseller !== undefined) dbUpdates.is_bestseller = updates.isBestseller;
-    if (updates.printTypes !== undefined) dbUpdates.print_types = updates.printTypes;
-    if (updates.frameTypesByPrintType !== undefined) dbUpdates.frame_types_by_print_type = updates.frameTypesByPrintType;
-
-    const { error } = await supabase
-      .from('paintings')
-      .update(dbUpdates)
-      .eq('id', id);
-
-    if (error) {
-      console.error('Error updating painting:', error);
-      return false;
-    }
-
-    return true;
-  },
-
-  async delete(id: string): Promise<boolean> {
-    const { error } = await supabase
-      .from('paintings')
-      .delete()
-      .eq('id', id);
-
-    if (error) {
-      console.error('Error deleting painting:', error);
-      return false;
-    }
-
-    return true;
-  },
-
-  mapFromDB(p: any): Painting {
-    return {
-      id: p.id,
-      title: p.title,
-      slug: p.slug,
-      category: p.category,
-      subcategory: p.subcategory || '',
-      description: p.description,
-      image: p.image,
-      imageUrls: p.image_urls,
-      availableSizes: p.available_sizes || [],
-      price: p.price,
-      discount: p.discount || 0,
-      isActive: p.is_active,
-      isBestseller: p.is_bestseller || false,
-      createdAt: p.created_at,
-      orientation: p.orientation,
-      dominantColor: p.dominant_color,
-      printTypes: p.print_types || [],
-      frameTypesByPrintType: p.frame_types_by_print_type || { 'Print Hartie': [], 'Print Canvas': [] }
-    };
-  }
-};
 
 // ===== CATEGORIES SERVICE =====
 
@@ -440,15 +249,15 @@ export const canvasSizesService = {
       console.log('✅ [Canvas Sizes] Sample data:', data[0]);
     }
 
-    return (data || []).map(s => ({
+    return (data || []).map((s: any) => ({
       id: s.id,
       width: s.width,
       height: s.height,
       price: s.price,
       discount: s.discount || 0,
       isActive: s.is_active !== false,
-      supportsPrintCanvas: s.supports_print_canvas,
-      supportsPrintHartie: s.supports_print_hartie,
+      supportsPrintCanvas: s.supports_print_canvas !== false,
+      supportsPrintHartie: s.supports_print_hartie !== false,
       framePrices: s.frame_prices || {}
     }));
   },
@@ -461,9 +270,9 @@ export const canvasSizesService = {
         height: size.height,
         price: size.price,
         discount: size.discount || 0,
+        supports_print_canvas: size.supportsPrintCanvas !== false,
+        supports_print_hartie: size.supportsPrintHartie !== false,
         is_active: size.isActive,
-        supports_print_canvas: size.supportsPrintCanvas,
-        supports_print_hartie: size.supportsPrintHartie,
         frame_prices: size.framePrices || {}
       }])
       .select()
@@ -481,29 +290,46 @@ export const canvasSizesService = {
       price: data.price,
       discount: data.discount || 0,
       isActive: data.is_active,
-      supportsPrintCanvas: data.supports_print_canvas,
-      supportsPrintHartie: data.supports_print_hartie,
+      supportsPrintCanvas: data.supports_print_canvas !== false,
+      supportsPrintHartie: data.supports_print_hartie !== false,
       framePrices: data.frame_prices || {}
     } : null;
   },
 
-  async update(id: string, updates: Partial<CanvasSize>): Promise<boolean> {
+  async update(id: string, updates: Partial<CanvasSize>): Promise<CanvasSize | null> {
     const dbUpdates: any = {};
     if (updates.width !== undefined) dbUpdates.width = updates.width;
     if (updates.height !== undefined) dbUpdates.height = updates.height;
     if (updates.price !== undefined) dbUpdates.price = updates.price;
     if (updates.discount !== undefined) dbUpdates.discount = updates.discount;
-    if (updates.isActive !== undefined) dbUpdates.is_active = updates.isActive;
     if (updates.supportsPrintCanvas !== undefined) dbUpdates.supports_print_canvas = updates.supportsPrintCanvas;
     if (updates.supportsPrintHartie !== undefined) dbUpdates.supports_print_hartie = updates.supportsPrintHartie;
+    if (updates.isActive !== undefined) dbUpdates.is_active = updates.isActive;
     if (updates.framePrices !== undefined) dbUpdates.frame_prices = updates.framePrices;
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('canvas_sizes')
       .update(dbUpdates)
-      .eq('id', id);
+      .eq('id', id)
+      .select()
+      .single();
 
-    return !error;
+    if (error) {
+      console.error('❌ Error updating size:', error);
+      return null;
+    }
+
+    return data ? {
+      id: data.id,
+      width: data.width,
+      height: data.height,
+      price: data.price,
+      discount: data.discount || 0,
+      isActive: data.is_active,
+      supportsPrintCanvas: data.supports_print_canvas !== false,
+      supportsPrintHartie: data.supports_print_hartie !== false,
+      framePrices: data.frame_prices || {}
+    } : null;
   },
 
   async delete(id: string): Promise<boolean> {

@@ -29,11 +29,9 @@ export const useOptimizedImageUpload = () => {
     try {
       // Step 1: Optimize image (33%)
       setUploadProgress(33);
-      console.log('🖼️ Optimizing image...');
 
       // Step 2: Upload all versions (66%)
       setUploadProgress(66);
-      console.log('☁️ Uploading to Supabase...');
       
       const urls = await uploadOptimizedImage(
         file,
@@ -42,7 +40,6 @@ export const useOptimizedImageUpload = () => {
 
       // Step 3: Complete (100%)
       setUploadProgress(100);
-      console.log('✅ Upload complete!', urls);
 
       toast.success('Imagine optimizată și încărcată cu succes!');
 

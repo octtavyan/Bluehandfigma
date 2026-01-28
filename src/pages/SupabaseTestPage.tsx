@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase'; // Use centralized client
+import { projectId } from '../utils/supabase/info';
 
 export default function SupabaseTestPage() {
   const [status, setStatus] = useState<string>('Testing connection...');
@@ -23,7 +24,7 @@ export default function SupabaseTestPage() {
       const { data: rlsData, error: rlsError } = await supabase
         .from('pg_tables')
         .select('tablename, rowsecurity')
-        .in('tablename', ['canvas_sizes', 'frame_types', 'paintings', 'categories', 'orders', 'admin_users']);
+        .in('tablename', ['canvas_sizes', 'frame_types', 'categories', 'orders', 'admin_users']);
       
       if (!rlsError && rlsData) {
         setRlsStatus(rlsData);
@@ -92,23 +93,7 @@ export default function SupabaseTestPage() {
         setTables(prev => [...prev, { name: 'categories', count: categories?.length || 0, data: categories }]);
       }
 
-      // Test 5: Check paintings table
-      setStatus('📊 Querying paintings table...');
-      const { data: paintings, error: paintingsError } = await supabase
-        .from('paintings')
-        .select('id, title, category_id, is_active, is_featured, created_at')
-        .order('created_at', { ascending: false })
-        .limit(10);
-
-      if (paintingsError) {
-        console.error('❌ Paintings error:', paintingsError);
-        setErrors(prev => [...prev, { table: 'paintings', error: paintingsError }]);
-      } else {
-        console.log('✅ Paintings data:', paintings);
-        setTables(prev => [...prev, { name: 'paintings', count: paintings?.length || 0, data: paintings }]);
-      }
-
-      // Test 6: Check orders table
+      // Test 5: Check orders table
       setStatus('📊 Querying orders table...');
       const { data: orders, error: ordersError } = await supabase
         .from('orders')
@@ -124,7 +109,7 @@ export default function SupabaseTestPage() {
         setTables(prev => [...prev, { name: 'orders', count: orders?.length || 0, data: orders }]);
       }
 
-      // Test 7: Check admin_users table
+      // Test 6: Check admin_users table
       setStatus('📊 Querying admin_users table...');
       const { data: users, error: usersError } = await supabase
         .from('admin_users')

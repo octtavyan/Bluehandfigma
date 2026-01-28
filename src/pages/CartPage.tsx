@@ -285,20 +285,6 @@ export const CartPage: React.FC = () => {
               >
                 ← Continuă Cumpărăturile
               </Link>
-
-              <div className="mt-6 pt-6 border-t border-gray-200">
-                <h4 className="text-gray-900 mb-3">Cod Promoțional</h4>
-                <div className="flex space-x-2">
-                  <input
-                    type="text"
-                    placeholder="Introdu codul"
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#6994FF]"
-                  />
-                  <button className="px-6 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors">
-                    Aplică
-                  </button>
-                </div>
-              </div>
             </div>
           </div>
         </div>

@@ -1,12 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router';
-import { Upload, X, ChevronLeft, ChevronRight, ShoppingCart, Check, ZoomIn, ZoomOut, RotateCw, Move, Loader2, User, MapPin, Package, CreditCard, ArrowRight, Star } from 'lucide-react';
+import { Upload, X, ShoppingCart, Check, ZoomIn, ZoomOut, Move, Loader2, Star, Info } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { useSizes } from '../hooks/useSizes';
-import { useAdmin } from '../context/AdminContext';
 import { PersonalizationData } from '../types';
-import { toast } from 'sonner';
-import { uploadPersonalizedImages } from '../utils/imageUpload';
+import { toast } from 'sonner@2.0.3';
 import { cloudinaryService } from '../services/cloudinaryService';
 
 type Step = 'upload-photo' | 'configure';
@@ -21,8 +19,7 @@ interface ImageConfig {
 
 export const PersonalizedCanvasPage: React.FC = () => {
   const navigate = useNavigate();
-  const { addToCart, clearCart } = useCart();
-  const { addOrder } = useAdmin();
+  const { addToCart } = useCart();
   const [currentStep, setCurrentStep] = useState<Step>('upload-photo');
   const [uploadedImages, setUploadedImages] = useState<string[]>([]);
   const [previewImages, setPreviewImages] = useState<string[]>([]);
@@ -43,25 +40,15 @@ export const PersonalizedCanvasPage: React.FC = () => {
   
   const [isAddingToCart, setIsAddingToCart] = useState(false);
   
-  const [checkoutData, setCheckoutData] = useState({
-    fullName: '',
-    email: '',
-    phone: '',
-    address: '',
-    city: '',
-    postalCode: '',
-    deliveryMethod: 'standard' as 'express' | 'standard' | 'economic',
-    paymentMethod: 'card' as 'card' | 'cash',
-  });
+  // State for configuration tooltip - show every time user reaches step 2
+  const [showConfigTooltip, setShowConfigTooltip] = useState(true);
   
-  const { sizeOptions: managedSizes, getPriceForSize } = useSizes();
+  const { sizeOptions: managedSizes } = useSizes();
   
-  // Convert managed sizes to the format used by this component
   const availableSizes = managedSizes.map(size => ({
     size: `${size.width}×${size.height} cm`,
     price: size.finalPrice,
     aspectRatio: size.width / size.height,
-    discount: size.discount,
   }));
 
   const createPreviewImage = (imageUrl: string): Promise<string> => {
@@ -89,7 +76,7 @@ export const PersonalizedCanvasPage: React.FC = () => {
         canvas.height = height;
         const ctx = canvas.getContext('2d');
         ctx?.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.8)); // Optimized preview for fast UI display
+        resolve(canvas.toDataURL('image/jpeg', 0.8));
       };
       img.src = imageUrl;
     });
@@ -100,11 +87,10 @@ export const PersonalizedCanvasPage: React.FC = () => {
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const maxDimension = 4096; // Max 4K resolution - excellent for printing
+        const maxDimension = 4096;
         let width = img.width;
         let height = img.height;
 
-        // Only resize if image is too large
         if (width > maxDimension || height > maxDimension) {
           if (width > height) {
             height = (height * maxDimension) / width;
@@ -120,7 +106,6 @@ export const PersonalizedCanvasPage: React.FC = () => {
         const ctx = canvas.getContext('2d');
         ctx?.drawImage(img, 0, 0, width, height);
         
-        // Convert to blob with quality optimization to stay under 10MB
         let quality = 0.92;
         const tryCompress = () => {
           canvas.toBlob((blob) => {
@@ -131,15 +116,12 @@ export const PersonalizedCanvasPage: React.FC = () => {
             
             const sizeMB = blob.size / (1024 * 1024);
             
-            // If under 10MB, we're good
             if (sizeMB < 10) {
               resolve(blob);
             } else if (quality > 0.5) {
-              // Try again with lower quality
               quality -= 0.1;
               tryCompress();
             } else {
-              // Even at 50% quality still too large, reject
               reject(new Error('Image too large even after compression'));
             }
           }, 'image/jpeg', quality);
@@ -158,7 +140,6 @@ export const PersonalizedCanvasPage: React.FC = () => {
     setIsUploading(true);
     
     try {
-      // Check if Cloudinary is configured
       const isConfigured = await cloudinaryService.isConfigured();
       
       if (!isConfigured) {
@@ -168,11 +149,12 @@ export const PersonalizedCanvasPage: React.FC = () => {
       }
 
       const uploadPromises: Promise<void>[] = [];
+      const errors: string[] = [];
+      let successCount = 0;
       
       for (const file of Array.from(files)) {
         const uploadPromise = (async () => {
           try {
-            // Read file as data URL
             const reader = new FileReader();
             const dataUrlPromise = new Promise<string>((resolve) => {
               reader.onload = (e) => {
@@ -184,25 +166,17 @@ export const PersonalizedCanvasPage: React.FC = () => {
             });
             
             const dataUrl = await dataUrlPromise;
-            
-            // Optimize image to be under 10MB
             const optimizedBlob = await createOptimizedOriginal(dataUrl);
-            
-            // Create a File object from the optimized blob
             const optimizedFile = new File([optimizedBlob], file.name, { type: 'image/jpeg' });
-            
-            // Upload optimized image to Cloudinary
             const cloudinaryUrl = await cloudinaryService.uploadImage(optimizedFile, 'personalized-orders');
-            
-            // Create preview for display (smaller thumbnail)
             const previewImage = await createPreviewImage(dataUrl);
             
-            // Use Cloudinary URL as the main image
             setUploadedImages(prev => [...prev, cloudinaryUrl]);
             setPreviewImages(prev => [...prev, previewImage]);
+            successCount++;
           } catch (error) {
             console.error('Upload error:', error);
-            toast.error(`Eroare la încărcarea imaginii: ${file.name}`);
+            errors.push(file.name);
           }
         })();
         
@@ -211,17 +185,30 @@ export const PersonalizedCanvasPage: React.FC = () => {
       
       await Promise.all(uploadPromises);
       
-      // Show success toast and move to configure step
-      toast.success('Calitate Verificată!', {
-        description: 'Fotografiile au fost încărcate cu succes pe Cloudinary și sunt excelente pentru imprimare.',
-        duration: 3000,
-      });
+      // Show combined toast message
+      if (errors.length > 0 && successCount > 0) {
+        toast.warning('Încărcare Parțială', {
+          description: `${successCount} ${successCount === 1 ? 'fotografie încărcată' : 'fotografii încărcate'} cu succes. ${errors.length} ${errors.length === 1 ? 'eșuată' : 'eșuate'}: ${errors.slice(0, 3).join(', ')}${errors.length > 3 ? '...' : ''}`,
+          duration: 4000,
+        });
+      } else if (errors.length > 0) {
+        toast.error('Eroare la Încărcare', {
+          description: `Fotografii eșuate: ${errors.slice(0, 3).join(', ')}${errors.length > 3 ? ` și încă ${errors.length - 3}` : ''}`,
+          duration: 4000,
+        });
+      } else {
+        toast.success('Calitate Verificată!', {
+          description: `${successCount} ${successCount === 1 ? 'fotografie încărcată' : 'fotografii încărcate'} cu succes pe Cloudinary.`,
+          duration: 3000,
+        });
+      }
       
-      // Auto-transition to configure step after a short delay
-      setTimeout(() => {
-        setCurrentStep('configure');
-        setCurrentImageIndex(0);
-      }, 1000);
+      if (successCount > 0) {
+        setTimeout(() => {
+          setCurrentStep('configure');
+          setCurrentImageIndex(0);
+        }, 1000);
+      }
       
     } catch (error) {
       console.error('Upload error:', error);
@@ -316,6 +303,67 @@ export const PersonalizedCanvasPage: React.FC = () => {
     }
   }, [currentImageIndex, currentStep]);
 
+  const cropImageFromFrame = async (
+    imageUrl: string,
+    cropWidth: number,
+    cropHeight: number,
+    imagePosition: { x: number; y: number },
+    imageScale: number,
+    imgDisplayWidth: number,
+    imgDisplayHeight: number
+  ): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const imgWidth = img.naturalWidth;
+        const imgHeight = img.naturalHeight;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = cropWidth;
+        canvas.height = cropHeight;
+        const ctx = canvas.getContext('2d');
+
+        if (!ctx) {
+          reject(new Error('Failed to get canvas context'));
+          return;
+        }
+
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, cropWidth, cropHeight);
+
+        const scaleX = imgWidth / imgDisplayWidth;
+        const scaleY = imgHeight / imgDisplayHeight;
+
+        const sourceWidth = cropWidth * scaleX / imageScale;
+        const sourceHeight = cropHeight * scaleY / imageScale;
+
+        const sourceX = (imgWidth - sourceWidth) / 2 - (imagePosition.x * scaleX / imageScale);
+        const sourceY = (imgHeight - sourceHeight) / 2 - (imagePosition.y * scaleY / imageScale);
+
+        ctx.drawImage(
+          img,
+          sourceX,
+          sourceY,
+          sourceWidth,
+          sourceHeight,
+          0,
+          0,
+          cropWidth,
+          cropHeight
+        );
+
+        resolve(canvas.toDataURL('image/jpeg', 0.95));
+      };
+
+      img.onerror = () => {
+        reject(new Error('Failed to load image'));
+      };
+
+      img.crossOrigin = 'anonymous';
+      img.src = imageUrl;
+    });
+  };
+
   const generateCroppedImage = async (): Promise<string> => {
     if (!uploadedImages[currentImageIndex] || !cropFrameRef.current || !imageRef.current) return '';
 
@@ -323,13 +371,11 @@ export const PersonalizedCanvasPage: React.FC = () => {
     const cropWidth = frameRect.width;
     const cropHeight = frameRect.height;
     
-    // Get the natural display size of the image (before transform)
     const imgDisplayWidth = imageRef.current.offsetWidth;
     const imgDisplayHeight = imageRef.current.offsetHeight;
 
-    // Use the ORIGINAL high-quality image for cropping, not the preview
     return await cropImageFromFrame(
-      uploadedImages[currentImageIndex], // Changed from previewImages to uploadedImages for max quality
+      uploadedImages[currentImageIndex],
       cropWidth,
       cropHeight,
       imagePosition,
@@ -347,7 +393,6 @@ export const PersonalizedCanvasPage: React.FC = () => {
   };
 
   const handleSaveCurrentImage = async () => {
-    // If this is the last image, we're adding to cart - show loading
     const isLastImage = currentImageIndex >= uploadedImages.length - 1;
     
     if (isLastImage) {
@@ -371,14 +416,12 @@ export const PersonalizedCanvasPage: React.FC = () => {
 
       if (currentImageIndex < uploadedImages.length - 1) {
         setCurrentImageIndex(currentImageIndex + 1);
-        // Scroll to top on mobile when moving to next image
         window.scrollTo({ top: 0, behavior: 'smooth' });
       } else {
-        // All images configured - add to cart and go to cart page
         await handleAddToCart(newConfigs);
       }
     } catch (error) {
-      console.error('❌ Error saving image:', error);
+      console.error('Error saving image:', error);
       setIsAddingToCart(false);
     }
   };
@@ -387,50 +430,40 @@ export const PersonalizedCanvasPage: React.FC = () => {
     try {
       setIsAddingToCart(true);
 
-      // Show loading toast
       const loadingToast = toast.loading('Se procesează imaginile...', {
         description: 'Pregătim tablourile personalizate'
       });
 
-      // Images are already uploaded to Cloudinary in Step 1
-      // Just need to upload the cropped versions
       const uploadPromises = configs.map(async (config, index) => {
         try {
-          // Convert cropped image data URL to blob
           const response = await fetch(config.croppedImage);
           const blob = await response.blob();
           
-          // Create a File object from blob
           const file = new File([blob], `cropped-image-${index}.jpg`, { type: 'image/jpeg' });
-          
-          // Upload cropped version to Cloudinary
           const croppedUrl = await cloudinaryService.uploadImage(file, 'personalized-orders');
           
           return { 
             config, 
-            originalUrl: uploadedImages[index], // Already uploaded in Step 1
-            croppedUrl // Newly uploaded cropped version
+            originalUrl: uploadedImages[index],
+            croppedUrl
           };
         } catch (error) {
-          console.error(`❌ Error uploading cropped image ${index}:`, error);
+          console.error(`Error uploading cropped image ${index}:`, error);
           throw error;
         }
       });
 
       const uploadedData = await Promise.all(uploadPromises);
-
-      // Dismiss loading toast
       toast.dismiss(loadingToast);
 
-      // Add all configured canvases to cart with Cloudinary URLs
       uploadedData.forEach(({ config, originalUrl, croppedUrl }, index) => {
         const customization: PersonalizationData = {
           modelId: 'custom-canvas',
           modelTitle: 'Tablou Personalizat',
-          uploadedImages: [], // Remove local base64 images
-          croppedImage: '', // Remove local base64 preview
-          originalImageUrl: originalUrl, // Use Cloudinary URL from Step 1
-          croppedImageUrl: croppedUrl, // Use Cloudinary URL for cropped version
+          uploadedImages: [],
+          croppedImage: '',
+          originalImageUrl: originalUrl,
+          croppedImageUrl: croppedUrl,
           selectedSize: config.selectedSize,
           price: availableSizes.find(size => size.size === config.selectedSize)?.price || 0,
           orientation: config.orientation,
@@ -440,23 +473,21 @@ export const PersonalizedCanvasPage: React.FC = () => {
           { id: `custom-${Date.now()}-${index}`, title: 'Tablou Personalizat', price: 0, image: croppedUrl, category: 'personalized' },
           1,
           config.selectedSize,
-          undefined, // printType
-          undefined, // frameType
-          customization
+          undefined,
+          undefined,
+          customization,
+          true // silent mode - don't show individual toasts
         );
       });
 
-      // Success toast
       toast.success('Succes!', {
-        description: 'Tablourile personalizate au fost adăugate în coș'
+        description: `${uploadedData.length} ${uploadedData.length === 1 ? 'tablou personalizat adăugat' : 'tablouri personalizate adăugate'} în coș`
       });
 
       setIsAddingToCart(false);
-
-      // Redirect to cart page (not checkout) so users can review their cart
       navigate('/cart');
     } catch (error) {
-      console.error('❌ Failed to process images:', error);
+      console.error('Failed to process images:', error);
       toast.error('Eroare la procesarea imaginilor', {
         description: 'Te rugăm să încerci din nou'
       });
@@ -464,141 +495,64 @@ export const PersonalizedCanvasPage: React.FC = () => {
     }
   };
 
-  const handlePreviousImage = () => {
-    if (currentImageIndex > 0) {
-      setCurrentImageIndex(currentImageIndex - 1);
-    }
-  };
-
-  const calculateTotalPrice = () => {
-    return imageConfigs.reduce((total, config) => {
-      const size = availableSizes.find(s => s.size === config.selectedSize);
-      return total + (size?.price || 0);
-    }, 0);
-  };
-
-  const getDeliveryPrice = () => {
-    return checkoutData.deliveryMethod === 'express' ? 25 :
-           checkoutData.deliveryMethod === 'standard' ? 15 : 10;
-  };
-
-  const handleCheckout = () => {
-    // This function is called from the checkout step in the personalized flow
-    // It adds items and navigates to checkout page
-    imageConfigs.forEach((config, index) => {
-      const customization: PersonalizationData = {
-        modelId: 'custom-canvas',
-        modelTitle: 'Tablou Personalizat',
-        uploadedImages: [uploadedImages[index]],
-        croppedImage: config.croppedImage,
-        selectedSize: config.selectedSize,
-        price: availableSizes.find(size => size.size === config.selectedSize)?.price || 0,
-        orientation: config.orientation,
-      };
-
-      addToCart(
-        { id: `custom-${Date.now()}-${index}`, title: 'Tablou Personalizat', price: 0, image: uploadedImages[index], category: 'personalized' },
-        1,
-        config.selectedSize,
-        undefined, // printType
-        undefined, // frameType
-        customization
-      );
-    });
-
-    // Navigate to checkout
-    navigate('/checkout');
-  };
-
-  const resetFlow = () => {
-    setCurrentStep('upload-photo');
-    setUploadedImages([]);
-    setPreviewImages([]);
-    setImageConfigs([]);
-    setCurrentImageIndex(0);
-    clearCart();
-  };
-
-  const handleContinue = () => {
-    clearCart();
-    navigate('/');
-  };
-
-  // Finalize layout with gradient background
-  if (currentStep === 'finalize') {
-    return (
-      <div className="min-h-screen bg-white py-12">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <div className="bg-gradient-to-br from-[#6994FF]/10 to-[#6994FF]/5 rounded-2xl p-12">
-            <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-6">
-              <Check className="w-10 h-10 text-white" />
-            </div>
-            <h1 className="text-gray-900 mb-4">Comanda Ta a Fost Plasată!</h1>
-            <p className="text-gray-600 mb-8">
-              Mulțumim pentru comandă! Vei primi un email de confirmare în cel mai scurt timp.
-            </p>
-            <div className="flex items-center justify-center space-x-2 mb-1">
-              <Star className="w-5 h-5 text-[#6994FF] fill-[#6994FF]" />
-              <span className="text-gray-900">4.9</span>
-              <span className="text-gray-600">(1,264 recenzii)</span>
-            </div>
-            
-            <div className="bg-gray-50 rounded-lg p-6 mb-8 text-left">
-              <h3 className="text-gray-900 mb-4">Detalii Comandă</h3>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Număr Tablouri:</span>
-                  <span className="text-gray-900">{imageConfigs.length}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Total:</span>
-                  <span className="text-gray-900">{calculateTotalPrice().toFixed(2)} lei</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Livrare:</span>
-                  <span className="text-gray-900">
-                    {checkoutData.deliveryMethod === 'express' && 'Express (1-4 ore)'}
-                    {checkoutData.deliveryMethod === 'standard' && 'Standard (24-48 ore)'}
-                    {checkoutData.deliveryMethod === 'economic' && 'Economic (3-4 zile)'}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Adresă:</span>
-                  <span className="text-gray-900">{checkoutData.address}, {checkoutData.city}</span>
-                </div>
-              </div>
-            </div>
-            
-            <button
-              onClick={handleContinue}
-              className="px-8 py-3 bg-[#6994FF] text-white rounded-lg hover:bg-[#5078E6] transition-colors"
-            >
-              Continuă
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-white">
-      <div className="bg-gradient-to-br from-gray-50 to-gray-100 py-12 border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-8">
-            <h1 className="text-3xl text-gray-900 mb-3 tracking-tight">Tablou Personalizat</h1>
-            <div className="flex items-center justify-center space-x-2 mb-1">
-              <Star className="w-5 h-5 text-yellow-500 fill-yellow-500" />
-              <span className="text-gray-900">4.9</span>
-              <span className="text-gray-600">(1,264 recenzii)</span>
+      {/* Main Content with Sidebar */}
+      <div className="max-w-[1600px] mx-auto">
+        <div className="flex flex-col lg:flex-row">
+          {/* Vertical Steps Sidebar - Desktop */}
+          <div className="hidden lg:block w-64 border-r border-gray-200 bg-white min-h-[calc(100vh-120px)] p-6">
+            <div className="sticky top-24">
+              <h2 className="text-xl font-semibold text-gray-900 mb-8">Tablou Personalizat</h2>
+              <div className="space-y-2">
+                {[
+                  { id: 'upload-photo', label: 'Încarcă Fotografiile', number: 1 },
+                  { id: 'configure', label: 'Configurare', number: 2 },
+                ].map((step) => {
+                  const stepOrder: Step[] = ['upload-photo', 'configure'];
+                  const currentIndex = stepOrder.indexOf(currentStep);
+                  const stepIndex = stepOrder.indexOf(step.id as Step);
+                  const isActive = currentIndex === stepIndex;
+                  const isCompleted = currentIndex > stepIndex;
+
+                  return (
+                    <div
+                      key={step.id}
+                      className="flex items-center gap-3 py-3"
+                    >
+                      <div
+                        className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${
+                          isActive
+                            ? 'bg-[#6994FF] text-white'
+                            : isCompleted
+                            ? 'bg-[#6994FF] text-white'
+                            : 'bg-gray-300 text-gray-600'
+                        }`}
+                      >
+                        {step.number}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p
+                          className={`text-sm transition-all ${
+                            isActive || isCompleted ? 'text-gray-900 font-medium' : 'text-gray-500'
+                          }`}
+                        >
+                          {step.label}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
-          <div className="max-w-4xl mx-auto">
-            <div className="flex items-center justify-between">
+          {/* Mobile Steps - Horizontal */}
+          <div className="lg:hidden border-b border-gray-200 bg-gray-50 px-4 py-4">
+            <div className="flex items-center justify-center gap-3 max-w-md mx-auto">
               {[
-                { id: 'upload-photo', label: 'Încarcă' },
-                { id: 'configure', label: 'Configurare' },
+                { id: 'upload-photo', label: 'Încarcă Foto', number: 1 },
+                { id: 'configure', label: 'Configurare', number: 2 },
               ].map((step, index) => {
                 const stepOrder: Step[] = ['upload-photo', 'configure'];
                 const currentIndex = stepOrder.indexOf(currentStep);
@@ -608,729 +562,344 @@ export const PersonalizedCanvasPage: React.FC = () => {
 
                 return (
                   <React.Fragment key={step.id}>
-                    <div className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-full transition-all ${
-                      isCompleted 
-                        ? 'bg-[#6994FF]/20' 
-                        : isActive 
-                        ? 'bg-[#6994FF] shadow-lg shadow-[#6994FF]/30' 
-                        : 'bg-gray-100'
-                    }`}>
-                      <div className={`w-5 h-5 sm:w-6 sm:h-6 rounded-full flex items-center justify-center text-xs transition-all ${
-                        isCompleted 
-                          ? 'bg-[#6994FF] text-white' 
-                          : isActive 
-                          ? 'bg-white text-[#6994FF]' 
-                          : 'bg-white text-gray-400'
-                      }`}>
-                        {isCompleted ? <Check className="w-3 h-3 sm:w-4 sm:h-4" /> : index + 1}
+                    <div className="flex items-center gap-2">
+                      <div
+                        className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${
+                          isActive
+                            ? 'bg-[#6994FF] text-white'
+                            : isCompleted
+                            ? 'bg-[#6994FF] text-white'
+                            : 'bg-gray-300 text-gray-600'
+                        }`}
+                      >
+                        {step.number}
                       </div>
-                      <span className={`text-xs sm:text-sm transition-all whitespace-nowrap ${
-                        isActive ? 'text-white font-medium' : isCompleted ? 'text-[#6994FF]' : 'text-gray-500'
-                      }`}>
+                      <p
+                        className={`text-sm transition-all whitespace-nowrap ${
+                          isActive || isCompleted ? 'text-gray-900 font-medium' : 'text-gray-500'
+                        }`}
+                      >
                         {step.label}
-                      </span>
+                      </p>
                     </div>
                     {index < 1 && (
-                      <div className={`h-0.5 w-4 sm:w-8 rounded-full transition-all ${
-                        isCompleted ? 'bg-[#6994FF]' : 'bg-gray-200'
-                      }`} />
+                      <div
+                        className={`h-0.5 w-8 rounded-full transition-all ${
+                          isCompleted ? 'bg-[#6994FF]' : 'bg-gray-200'
+                        }`}
+                      />
                     )}
                   </React.Fragment>
                 );
               })}
             </div>
           </div>
-        </div>
-      </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        {currentStep === 'upload-photo' && (
-          <div>
-            <h2 className="text-gray-900 mb-8 text-center">Pasul 1: Încarcă Fotografiile</h2>
-
-            <div className="max-w-3xl mx-auto">
-              {uploadedImages.length === 0 && (
-                <div
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  onDrop={handleDrop}
-                  className={`border-4 border-dashed rounded-lg p-12 text-center transition-colors relative ${
-                    isDragging ? 'border-yellow-500 bg-yellow-50' : 'border-gray-300'
-                  }`}
-                >
-                  {isUploading && (
-                    <div className="absolute inset-0 bg-white/90 flex flex-col items-center justify-center rounded-lg z-10">
-                      <Loader2 className="w-12 h-12 text-yellow-500 animate-spin mb-4" />
-                      <p className="text-gray-900 mb-1">Se încarcă fotografiile...</p>
-                      <p className="text-sm text-gray-600">Verificăm calitatea imaginilor</p>
-                    </div>
-                  )}
-                  <Upload className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-gray-900 mb-2">Trage și Plasează Fotografiile</h3>
-                  <p className="text-gray-600 mb-4">sau</p>
-                  <label className="inline-block px-6 py-3 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors cursor-pointer">
-                    <input
-                      type="file"
-                      multiple
-                      accept="image/*"
-                      onChange={(e) => handleFileUpload(e.target.files)}
-                      className="hidden"
-                      disabled={isUploading}
-                    />
-                    Selectează Imaginea
-                  </label>
-                  <p className="text-sm text-gray-500 mt-4">
-                    Format acceptat: JPG, PNG, HEIC. Mărime maximă: 20MB per fișier
-                  </p>
-                </div>
-              )}
-
-              {uploadedImages.length > 0 && (
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-gray-900">
-                      Fotografii Încărcate ({uploadedImages.length})
-                    </h3>
-                    <label className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors cursor-pointer text-sm">
-                      <input
-                        type="file"
-                        multiple
-                        accept="image/*"
-                        onChange={(e) => handleFileUpload(e.target.files)}
-                        className="hidden"
-                      />
-                      + Adaugă Mai Multe
-                    </label>
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
-                    {uploadedImages.map((image, index) => (
-                      <div key={index} className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden group">
-                        <img src={image} alt={`Upload ${index + 1}`} className="w-full h-full object-cover" />
-                        <div className="absolute top-2 right-2 bg-green-500 text-white p-1 rounded-full">
-                          <Check className="w-4 h-4" />
-                        </div>
-                        <button
-                          onClick={() => handleRemoveImage(index)}
-                          className="absolute top-2 left-2 bg-red-500 text-white p-1.5 rounded-full hover:bg-red-600 transition-all opacity-0 group-hover:opacity-100"
-                          title="Șterge fotografia"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
-                    <div className="flex items-start space-x-3">
-                      <Check className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <p className="text-green-900 mb-1">Calitate Verificată</p>
-                        <p className="text-sm text-green-700">
-                          Fotografiile tale au fost verificate automat. Calitatea este excelentă pentru imprimare!
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={handleContinueToConfigure}
-                    className="w-full px-8 py-3 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors"
-                  >
-                    Continuă la Configurare
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {currentStep === 'configure' && (
-          <div>
-            <div className="max-w-7xl mx-auto lg:max-w-4xl">
-              {/* Mobile: Dimensions Only */}
-              <div className="lg:hidden mb-4">
-                <div className="bg-white rounded-lg p-4 border-2 border-gray-200">
-                  <label className="block text-base text-gray-700 mb-3">Dimensiune</label>
-                  <select
-                    value={selectedSize}
-                    onChange={(e) => setSelectedSize(e.target.value)}
-                    className="w-full px-4 py-4 text-base border-2 border-gray-300 rounded-lg focus:border-yellow-500 focus:outline-none"
-                  >
-                    {availableSizes.map((size) => (
-                      <option key={size.size} value={size.size}>
-                        {size.size} - {size.price} lei
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Responsive layout: mobile stacked, desktop single column */}
-              <div className="grid grid-cols-1 lg:grid-cols-1 gap-4 sm:gap-6">
-                {/* Cropper Card */}
-                <div className="bg-white rounded-lg p-6 border-2 border-gray-200 lg:mb-6">
-                  <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-xl text-gray-900">Ajustează Încadrarea</h3>
-                    <button
-                      onClick={() => {
-                        setImageScale(1);
-                        setImagePosition({ x: 0, y: 0 });
-                      }}
-                      className="text-sm px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-                    >
-                      Reset
-                    </button>
-                  </div>
-
-                  {/* Dimensions & Orientation Combined - Desktop */}
-                  <div className="hidden lg:grid lg:grid-cols-2 gap-4 mb-6">
-                    {/* Dimensions */}
-                    <div>
-                      <label className="block text-sm text-gray-700 mb-3">Dimensiune</label>
-                      <select
-                        value={selectedSize}
-                        onChange={(e) => setSelectedSize(e.target.value)}
-                        className="w-full px-5 py-4 text-base border-2 border-gray-300 rounded-lg focus:border-yellow-500 focus:outline-none"
-                      >
-                        {availableSizes.map((size) => (
-                          <option key={size.size} value={size.size}>
-                            {size.size} - {size.price} lei
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Orientation */}
-                    <div>
-                      <label className="block text-sm text-gray-700 mb-3">Orientare</label>
-                      <div className="grid grid-cols-2 gap-3">
-                        <button
-                          onClick={() => setOrientation('portrait')}
-                          className={`px-4 py-3 rounded-lg transition-all flex items-center justify-center space-x-2 ${
-                            orientation === 'portrait'
-                              ? 'bg-yellow-500 text-white shadow-lg'
-                              : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border-2 border-gray-200'
-                          }`}
-                        >
-                          <div className={`w-4 h-6 border-2 rounded-sm ${orientation === 'portrait' ? 'border-white' : 'border-gray-400'}`} />
-                          <span>Portrait</span>
-                        </button>
-                        <button
-                          onClick={() => setOrientation('landscape')}
-                          className={`px-4 py-3 rounded-lg transition-all flex items-center justify-center space-x-2 ${
-                            orientation === 'landscape'
-                              ? 'bg-yellow-500 text-white shadow-lg'
-                              : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border-2 border-gray-200'
-                          }`}
-                        >
-                          <div className={`w-6 h-4 border-2 rounded-sm ${orientation === 'landscape' ? 'border-white' : 'border-gray-400'}`} />
-                          <span>Landscape</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Orientation Selection - Mobile Only */}
-                  <div className="lg:hidden mb-4">
-                    <label className="block text-sm text-gray-700 mb-2">Orientare</label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <button
-                        onClick={() => setOrientation('portrait')}
-                        className={`px-4 py-2 rounded-lg transition-all text-sm flex items-center justify-center space-x-2 ${
-                          orientation === 'portrait'
-                            ? 'bg-yellow-500 text-white shadow-md'
-                            : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
-                        }`}
-                      >
-                        <div className={`w-3 h-5 border-2 rounded-sm ${orientation === 'portrait' ? 'border-white' : 'border-gray-400'}`} />
-                        <span>Portrait</span>
-                      </button>
-                      <button
-                        onClick={() => setOrientation('landscape')}
-                        className={`px-4 py-2 rounded-lg transition-all text-sm flex items-center justify-center space-x-2 ${
-                          orientation === 'landscape'
-                            ? 'bg-yellow-500 text-white shadow-md'
-                            : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
-                        }`}
-                      >
-                        <div className={`w-5 h-3 border-2 rounded-sm ${orientation === 'landscape' ? 'border-white' : 'border-gray-400'}`} />
-                        <span>Landscape</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-center bg-gray-800 rounded-lg p-6 lg:p-8 mb-4 lg:mb-6 overflow-hidden" style={{ minHeight: '400px', maxHeight: '500px' }}>
+          {/* Main Content Area */}
+          <div className="flex-1 px-4 sm:px-6 lg:px-8 py-6">
+            {currentStep === 'upload-photo' && (
+              <div>
+                <div className="max-w-4xl">
+                  {uploadedImages.length === 0 && (
                     <div
-                      ref={cropFrameRef}
-                      className="relative touch-none"
-                      style={{
-                        width: '100%',
-                        maxWidth: orientation === 'portrait' ? '320px' : '480px',
-                        aspectRatio: `${1 / getOrientedAspectRatio()}`,
-                      }}
-                      onMouseMove={handleImageMouseMove}
-                      onMouseUp={handleImageMouseUp}
-                      onMouseLeave={handleImageMouseUp}
-                      onTouchStart={handleImageTouchStart}
-                      onTouchMove={handleImageTouchMove}
-                      onTouchEnd={handleImageTouchEnd}
+                      onDragOver={handleDragOver}
+                      onDragLeave={handleDragLeave}
+                      onDrop={handleDrop}
+                      className={`border-4 border-dashed rounded-lg p-16 sm:p-20 text-center transition-colors relative ${
+                        isDragging ? 'border-yellow-500 bg-yellow-50' : 'border-gray-300'
+                      }`}
                     >
-                      {previewImages[currentImageIndex] && (
-                        <div 
-                          className="absolute inset-0"
-                          style={{
-                            cursor: isDraggingImage ? 'grabbing' : 'grab',
-                          }}
-                        >
-                          <img
-                            ref={imageRef}
-                            src={previewImages[currentImageIndex]}
-                            alt="Canvas Image"
-                            className="select-none absolute"
-                            style={{
-                              transform: `translate(calc(-50% + ${imagePosition.x}px), calc(-50% + ${imagePosition.y}px)) scale(${imageScale})`,
-                              transformOrigin: 'center',
-                              top: '50%',
-                              left: '50%',
-                              transition: isDraggingImage ? 'none' : 'transform 0.1s',
-                            }}
-                            onMouseDown={handleImageMouseDown}
-                            draggable={false}
-                          />
+                      {isUploading && (
+                        <div className="absolute inset-0 bg-white/90 flex flex-col items-center justify-center rounded-lg z-10">
+                          <Loader2 className="w-12 h-12 text-yellow-500 animate-spin mb-4" />
+                          <p className="text-gray-900 mb-1">Se încarcă fotografiile...</p>
+                          <p className="text-sm text-gray-600">Verificăm calitatea imaginilor</p>
                         </div>
                       )}
-
-                      <div className="absolute inset-0 border-4 border-[#6994FF] shadow-2xl rounded-sm pointer-events-none" />
-                      
-                      <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-white pointer-events-none" />
-                      <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-white pointer-events-none" />
-                      <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-white pointer-events-none" />
-                      <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-white pointer-events-none" />
+                      <Upload className="w-20 h-20 text-gray-400 mx-auto mb-6" />
+                      <h3 className="text-2xl text-gray-900 mb-3 hidden sm:block">Trage aici Fotografia</h3>
+                      <p className="text-lg text-gray-600 mb-6 hidden sm:block">sau</p>
+                      <label className="inline-block px-8 py-4 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors cursor-pointer text-lg font-medium">
+                        <input
+                          type="file"
+                          multiple
+                          accept="image/*"
+                          onChange={(e) => handleFileUpload(e.target.files)}
+                          className="hidden"
+                          disabled={isUploading}
+                        />
+                        Încarcă o Imagine
+                      </label>
+                      <p className="text-base text-gray-500 mt-6">
+                        Format acceptat: JPG, PNG, HEIC. Mărime maximă: 10MB per fișier
+                      </p>
                     </div>
-                  </div>
+                  )}
 
-                  {/* Zoom Controls */}
-                  <div className="bg-gray-50 rounded-lg p-4 mb-4">
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={handleZoomOut}
-                        className="p-2.5 bg-white rounded-lg hover:bg-gray-100 transition-colors border border-gray-200"
-                      >
-                        <ZoomOut className="w-5 h-5 text-gray-700" />
-                      </button>
-                      
-                      <input
-                        type="range"
-                        min="50"
-                        max="300"
-                        value={imageScale * 100}
-                        onChange={(e) => setImageScale(parseInt(e.target.value) / 100)}
-                        className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                        style={{
-                          background: `linear-gradient(to right, #6994FF 0%, #6994FF ${((imageScale * 100 - 50) / 250) * 100}%, #E5E7EB ${((imageScale * 100 - 50) / 250) * 100}%, #E5E7EB 100%)`
-                        }}
-                      />
-                      
-                      <button
-                        onClick={handleZoomIn}
-                        className="p-2.5 bg-white rounded-lg hover:bg-gray-100 transition-colors border border-gray-200"
-                      >
-                        <ZoomIn className="w-5 h-5 text-gray-700" />
-                      </button>
-                      
-                      <span className="text-base text-gray-700 min-w-[60px] text-right">
-                        {Math.round(imageScale * 100)}%
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-center space-x-2 text-sm text-gray-500">
-                    <Move className="w-4 h-4" />
-                    <span>Trage imaginea • Zoom cu slider</span>
-                  </div>
-                </div>
-
-                {/* Action Button - Desktop Only */}
-                <div className="hidden lg:block bg-white rounded-lg p-6 border-2 border-gray-200">
-                  <button
-                    onClick={handleSaveCurrentImage}
-                    disabled={isAddingToCart}
-                    className="w-full px-6 py-4 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors flex items-center justify-center space-x-2 shadow-lg text-base disabled:opacity-70 disabled:cursor-not-allowed"
-                  >
-                    {isAddingToCart && currentImageIndex >= uploadedImages.length - 1 ? (
-                      <>
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                        <span>Se încarcă...</span>
-                      </>
-                    ) : (
-                      <>
-                        <ShoppingCart className="w-5 h-5" />
-                        <span>
-                          {currentImageIndex < uploadedImages.length - 1 
-                            ? 'Salvează și Continuă' 
-                            : 'Adaugă în Coș'}
-                        </span>
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                {/* Action Button - Mobile Only */}
-                <div className="lg:hidden">
-                  <button
-                    onClick={handleSaveCurrentImage}
-                    disabled={isAddingToCart}
-                    className="w-full px-6 py-4 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors flex items-center justify-center space-x-2 shadow-lg text-base disabled:opacity-70 disabled:cursor-not-allowed"
-                  >
-                    {isAddingToCart && currentImageIndex >= uploadedImages.length - 1 ? (
-                      <>
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                        <span>Se încarcă...</span>
-                      </>
-                    ) : (
-                      <>
-                        <ShoppingCart className="w-5 h-5" />
-                        <span>
-                          {currentImageIndex < uploadedImages.length - 1 
-                            ? 'Salvează și Continuă' 
-                            : 'Adaugă în Coș'}
-                        </span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {currentStep === 'checkout' && (
-          <div>
-            <h2 className="text-gray-900 mb-8 text-center">Pasul 3: Finalizare Comandă</h2>
-
-            <div className="max-w-5xl mx-auto">
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <div className="lg:col-span-2 space-y-6">
-                  <div className="bg-white rounded-lg border-2 border-gray-200 p-6">
-                    <h3 className="text-gray-900 mb-4 flex items-center space-x-2">
-                      <User className="w-5 h-5 text-yellow-600" />
-                      <span>Informații Contact</span>
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="md:col-span-2">
-                        <label className="block text-sm text-gray-700 mb-2">Nume Complet *</label>
-                        <input
-                          type="text"
-                          value={checkoutData.fullName}
-                          onChange={(e) => setCheckoutData({ ...checkoutData, fullName: e.target.value })}
-                          className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-yellow-500 focus:outline-none"
-                          placeholder="Ion Popescu"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm text-gray-700 mb-2">Email *</label>
-                        <input
-                          type="email"
-                          value={checkoutData.email}
-                          onChange={(e) => setCheckoutData({ ...checkoutData, email: e.target.value })}
-                          className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-yellow-500 focus:outline-none"
-                          placeholder="ion@example.com"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm text-gray-700 mb-2">Telefon *</label>
-                        <input
-                          type="tel"
-                          value={checkoutData.phone}
-                          onChange={(e) => setCheckoutData({ ...checkoutData, phone: e.target.value })}
-                          className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-yellow-500 focus:outline-none"
-                          placeholder="0752109002"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-white rounded-lg border-2 border-gray-200 p-6">
-                    <h3 className="text-gray-900 mb-4 flex items-center space-x-2">
-                      <MapPin className="w-5 h-5 text-yellow-600" />
-                      <span>Adresă de Livrare</span>
-                    </h3>
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm text-gray-700 mb-2">Adresă *</label>
-                        <input
-                          type="text"
-                          value={checkoutData.address}
-                          onChange={(e) => setCheckoutData({ ...checkoutData, address: e.target.value })}
-                          className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-yellow-500 focus:outline-none"
-                          placeholder="Str. Exemplu, Nr. 123"
-                        />
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm text-gray-700 mb-2">Oraș *</label>
+                  {uploadedImages.length > 0 && (
+                    <div>
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-gray-900">
+                          Fotografii Încărcate ({uploadedImages.length})
+                        </h3>
+                        <label className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors cursor-pointer text-sm">
                           <input
-                            type="text"
-                            value={checkoutData.city}
-                            onChange={(e) => setCheckoutData({ ...checkoutData, city: e.target.value })}
-                            className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-yellow-500 focus:outline-none"
-                            placeholder="București"
+                            type="file"
+                            multiple
+                            accept="image/*"
+                            onChange={(e) => handleFileUpload(e.target.files)}
+                            className="hidden"
                           />
-                        </div>
-                        <div>
-                          <label className="block text-sm text-gray-700 mb-2">Cod Poștal</label>
-                          <input
-                            type="text"
-                            value={checkoutData.postalCode}
-                            onChange={(e) => setCheckoutData({ ...checkoutData, postalCode: e.target.value })}
-                            className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-yellow-500 focus:outline-none"
-                            placeholder="010101"
-                          />
-                        </div>
+                          + Adaugă Mai Multe
+                        </label>
                       </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-white rounded-lg border-2 border-gray-200 p-6">
-                    <h3 className="text-gray-900 mb-4 flex items-center space-x-2">
-                      <Package className="w-5 h-5 text-yellow-600" />
-                      <span>Metodă de Livrare</span>
-                    </h3>
-                    <div className="space-y-3">
-                      <label className="flex items-center space-x-3 p-4 border-2 border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
-                        <input
-                          type="radio"
-                          name="delivery"
-                          value="express"
-                          checked={checkoutData.deliveryMethod === 'express'}
-                          onChange={(e) => setCheckoutData({ ...checkoutData, deliveryMethod: e.target.value as any })}
-                          className="w-4 h-4 text-yellow-500"
-                        />
-                        <div className="flex-1">
-                          <p className="text-gray-900">Express (1-4 ore)</p>
-                          <p className="text-sm text-gray-600">București - 25 lei</p>
-                        </div>
-                      </label>
-                      <label className="flex items-center space-x-3 p-4 border-2 border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
-                        <input
-                          type="radio"
-                          name="delivery"
-                          value="standard"
-                          checked={checkoutData.deliveryMethod === 'standard'}
-                          onChange={(e) => setCheckoutData({ ...checkoutData, deliveryMethod: e.target.value as any })}
-                          className="w-4 h-4 text-yellow-500"
-                        />
-                        <div className="flex-1">
-                          <p className="text-gray-900">Standard (24-48 ore)</p>
-                          <p className="text-sm text-gray-600">Toată țara - 15 lei</p>
-                        </div>
-                      </label>
-                      <label className="flex items-center space-x-3 p-4 border-2 border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
-                        <input
-                          type="radio"
-                          name="delivery"
-                          value="economic"
-                          checked={checkoutData.deliveryMethod === 'economic'}
-                          onChange={(e) => setCheckoutData({ ...checkoutData, deliveryMethod: e.target.value as any })}
-                          className="w-4 h-4 text-yellow-500"
-                        />
-                        <div className="flex-1">
-                          <p className="text-gray-900">Economic (3-4 zile)</p>
-                          <p className="text-sm text-gray-600">Toată țara - 10 lei</p>
-                        </div>
-                      </label>
-                    </div>
-                  </div>
-
-                  <div className="bg-white rounded-lg border-2 border-gray-200 p-6">
-                    <h3 className="text-gray-900 mb-4 flex items-center space-x-2">
-                      <CreditCard className="w-5 h-5 text-yellow-600" />
-                      <span>Metodă de Plată</span>
-                    </h3>
-                    <div className="space-y-3">
-                      <label className="flex items-center space-x-3 p-4 border-2 border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
-                        <input
-                          type="radio"
-                          name="payment"
-                          value="card"
-                          checked={checkoutData.paymentMethod === 'card'}
-                          onChange={(e) => setCheckoutData({ ...checkoutData, paymentMethod: e.target.value as any })}
-                          className="w-4 h-4 text-yellow-500"
-                        />
-                        <div className="flex-1">
-                          <p className="text-gray-900">Card Bancar</p>
-                          <p className="text-sm text-gray-600">Plată online securizată</p>
-                        </div>
-                      </label>
-                      <label className="flex items-center space-x-3 p-4 border-2 border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
-                        <input
-                          type="radio"
-                          name="payment"
-                          value="cash"
-                          checked={checkoutData.paymentMethod === 'cash'}
-                          onChange={(e) => setCheckoutData({ ...checkoutData, paymentMethod: e.target.value as any })}
-                          className="w-4 h-4 text-yellow-500"
-                        />
-                        <div className="flex-1">
-                          <p className="text-gray-900">Ramburs</p>
-                          <p className="text-sm text-gray-600">Plată la livrare</p>
-                        </div>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="lg:col-span-1">
-                  <div className="bg-gray-50 rounded-lg border-2 border-gray-200 p-6 sticky top-4">
-                    <h3 className="text-gray-900 mb-4">Sumar Comandă</h3>
-                    
-                    <div className="space-y-3 mb-6">
-                      {imageConfigs.map((config, index) => (
-                        <div key={index} className="flex items-center space-x-3 pb-3 border-b border-gray-200">
-                          <img 
-                            src={uploadedImages[index]} 
-                            alt={`Canvas ${index + 1}`}
-                            className="w-12 h-12 object-cover rounded"
-                          />
-                          <div className="flex-1 text-sm">
-                            <p className="text-gray-900">Tablou {index + 1}</p>
-                            <p className="text-gray-600">{config.selectedSize}</p>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
+                        {uploadedImages.map((image, index) => (
+                          <div key={index} className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden group">
+                            <img src={image} alt={`Upload ${index + 1}`} className="w-full h-full object-cover" />
+                            <div className="absolute top-2 right-2 bg-green-500 text-white p-1 rounded-full">
+                              <Check className="w-4 h-4" />
+                            </div>
+                            <button
+                              onClick={() => handleRemoveImage(index)}
+                              className="absolute top-2 left-2 bg-red-500 text-white p-1.5 rounded-full hover:bg-red-600 transition-all opacity-0 group-hover:opacity-100"
+                              title="Șterge fotografia"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
                           </div>
-                          <p className="text-gray-900">
-                            {(availableSizes.find(s => s.size === config.selectedSize)?.price || 0).toFixed(2)} lei
-                          </p>
+                        ))}
+                      </div>
+
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
+                        <div className="flex items-start space-x-3">
+                          <Check className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+                          <div>
+                            <p className="text-green-900 mb-1">Calitate Verificată</p>
+                            <p className="text-sm text-green-700">
+                              Fotografiile tale au fost verificate automat. Calitatea este excelentă pentru imprimare!
+                            </p>
+                          </div>
                         </div>
-                      ))}
+                      </div>
+
+                      <button
+                        onClick={handleContinueToConfigure}
+                        className="w-full px-8 py-3 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors"
+                      >
+                        Continuă la Configurare
+                      </button>
                     </div>
-
-                    <div className="space-y-2 mb-6">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">Subtotal:</span>
-                        <span className="text-gray-900">{calculateTotalPrice().toFixed(2)} lei</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">Livrare:</span>
-                        <span className="text-gray-900">
-                          {checkoutData.deliveryMethod === 'express' && '25 lei'}
-                          {checkoutData.deliveryMethod === 'standard' && '15 lei'}
-                          {checkoutData.deliveryMethod === 'economic' && '10 lei'}
-                        </span>
-                      </div>
-                      <div className="border-t-2 border-gray-300 pt-3 flex justify-between items-center">
-                        <span className="text-lg text-gray-900">Total:</span>
-                        <span className="text-2xl text-[#6994FF]">
-                          {(calculateTotalPrice() + 
-                            (checkoutData.deliveryMethod === 'express' ? 25 : 
-                             checkoutData.deliveryMethod === 'standard' ? 15 : 10)).toFixed(2)} lei
-                        </span>
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={handleCheckout}
-                      disabled={!checkoutData.fullName || !checkoutData.email || !checkoutData.phone || !checkoutData.address || !checkoutData.city}
-                      className="w-full px-6 py-4 bg-[#86C2FF] text-white rounded-lg hover:bg-[#6BADEF] transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed text-lg"
-                    >
-                      Plasează Comanda
-                    </button>
-
-                    <p className="text-xs text-gray-500 mt-4 text-center">
-                      Vei primi automat un cont creat pe email-ul furnizat
-                    </p>
-                  </div>
+                  )}
                 </div>
               </div>
-            </div>
+            )}
+
+            {currentStep === 'configure' && (
+              <div className="-mx-4 sm:-mx-6 lg:-mx-8">
+                {/* Cropper Card */}
+                <div className="mb-4">
+                  <div className="relative flex flex-col items-center justify-start bg-gray-800 overflow-hidden" style={{ minHeight: window.innerWidth < 640 ? '350px' : '500px' }}>
+                    {/* Top Controls Row */}
+                    <div className="w-full flex items-start justify-between px-4 pt-4 pb-4 z-10">
+                      {/* Left: Size & Orientation */}
+                      <div className="space-y-2.5 relative">
+                        {/* Size Dropdown */}
+                        <select
+                          value={selectedSize}
+                          onChange={(e) => setSelectedSize(e.target.value)}
+                          className="w-full px-3 py-2.5 bg-gray-600/50 border border-gray-500/30 rounded-md text-sm font-medium text-white/90 backdrop-blur-sm hover:bg-gray-600/70 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#6994FF]/50"
+                        >
+                          {availableSizes.map((size) => (
+                            <option key={size.size} value={size.size} className="bg-gray-700 text-white">
+                              {size.size} - {size.price} lei
+                            </option>
+                          ))}
+                        </select>
+
+                        {/* Orientation Buttons */}
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setOrientation('portrait')}
+                            className={`flex-1 p-2.5 rounded-md transition-all flex items-center justify-center ${
+                              orientation === 'portrait'
+                                ? 'bg-[#6994FF] text-white'
+                                : 'text-white/60 hover:bg-gray-600/50 bg-gray-600/30 border border-gray-500/30'
+                            }`}
+                            title="Portrait"
+                          >
+                            <div className={`w-4 h-6 border-2 rounded-sm ${orientation === 'portrait' ? 'border-white' : 'border-current'}`} />
+                          </button>
+                          <button
+                            onClick={() => setOrientation('landscape')}
+                            className={`flex-1 p-2.5 rounded-md transition-all flex items-center justify-center ${
+                              orientation === 'landscape'
+                                ? 'bg-[#6994FF] text-white'
+                                : 'text-white/60 hover:bg-gray-600/50 bg-gray-600/30 border border-gray-500/30'
+                            }`}
+                            title="Landscape"
+                          >
+                            <div className={`w-6 h-4 border-2 rounded-sm ${orientation === 'landscape' ? 'border-white' : 'border-current'}`} />
+                          </button>
+                        </div>
+
+                        {/* Configuration Tooltip - Below Controls */}
+                        {showConfigTooltip && (
+                          <>
+                            {/* Invisible Overlay - Click to Close */}
+                            <div 
+                              className="fixed inset-0 z-10"
+                              onClick={() => setShowConfigTooltip(false)}
+                            />
+                            
+                            <div className="absolute top-full left-0 mt-2 w-[320px] max-w-[90vw] z-20">
+                              {/* Arrow pointing up */}
+                              <div className="absolute -top-2 left-6 w-4 h-4 bg-green-100 border-l border-t border-green-300 transform rotate-45"></div>
+                              
+                              {/* Tooltip Content */}
+                              <div className="bg-green-100 border-2 border-green-300 rounded-lg p-3 shadow-xl">
+                                <div className="flex items-start gap-2">
+                                  <Info className="w-4 h-4 text-green-700 flex-shrink-0 mt-0.5" />
+                                  <div className="flex-1 min-w-0">
+                                    <h4 className="text-xs font-semibold text-green-900 mb-1">Ghid de Configurare</h4>
+                                    <p className="text-xs text-green-800 leading-relaxed">
+                                      Pentru a continua, te rugăm să <strong>selectezi dimensiunea</strong> din lista de mai sus și să <strong>alegi orientarea</strong> (portret sau landscape) pentru tabloul tău personalizat.
+                                    </p>
+                                  </div>
+                                  <button
+                                    onClick={() => setShowConfigTooltip(false)}
+                                    className="flex-shrink-0 p-0.5 hover:bg-green-200 rounded transition-colors"
+                                    aria-label="Închide"
+                                  >
+                                    <X className="w-4 h-4 text-green-700" />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+
+                      {/* Right: Zoom Controls */}
+                      <div>
+                        <div className="flex gap-1.5 mb-2">
+                          <button
+                            onClick={handleZoomOut}
+                            className="p-2.5 rounded-md hover:bg-gray-600/50 transition-colors text-white/70 hover:text-white bg-gray-600/30"
+                            title="Zoom Out"
+                          >
+                            <ZoomOut className="w-5 h-5" />
+                          </button>
+                          
+                          <button
+                            onClick={handleZoomIn}
+                            className="p-2.5 rounded-md hover:bg-gray-600/50 transition-colors text-white/70 hover:text-white bg-gray-600/30"
+                            title="Zoom In"
+                          >
+                            <ZoomIn className="w-5 h-5" />
+                          </button>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setImageScale(1);
+                            setImagePosition({ x: 0, y: 0 });
+                          }}
+                          className="w-full text-xs text-white/60 hover:text-white transition-colors"
+                          title="Reset"
+                        >
+                          Reset
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Crop Area - Below Controls, Centered with Padding */}
+                    <div className="w-full flex items-center justify-center flex-1 px-4 pb-4">
+                      <div
+                        ref={cropFrameRef}
+                        className="relative touch-none w-full"
+                        style={{
+                          maxWidth: window.innerWidth < 640 
+                            ? (orientation === 'portrait' ? '280px' : '420px')
+                            : (orientation === 'portrait' ? '400px' : '600px'),
+                          aspectRatio: `${1 / getOrientedAspectRatio()}`,
+                        }}
+                        onMouseMove={handleImageMouseMove}
+                        onMouseUp={handleImageMouseUp}
+                        onMouseLeave={handleImageMouseUp}
+                        onTouchStart={handleImageTouchStart}
+                        onTouchMove={handleImageTouchMove}
+                        onTouchEnd={handleImageTouchEnd}
+                      >
+                        {previewImages[currentImageIndex] && (
+                          <div 
+                            className="absolute inset-0"
+                            style={{
+                              cursor: isDraggingImage ? 'grabbing' : 'grab',
+                            }}
+                          >
+                            <img
+                              ref={imageRef}
+                              src={previewImages[currentImageIndex]}
+                              alt="Canvas Image"
+                              className="select-none absolute"
+                              style={{
+                                transform: `translate(calc(-50% + ${imagePosition.x}px), calc(-50% + ${imagePosition.y}px)) scale(${imageScale})`,
+                                transformOrigin: 'center',
+                                top: '50%',
+                                left: '50%',
+                                transition: isDraggingImage ? 'none' : 'transform 0.1s',
+                              }}
+                              onMouseDown={handleImageMouseDown}
+                              draggable={false}
+                            />
+                          </div>
+                        )}
+
+                        <div className="absolute inset-0 border-4 border-[#6994FF] shadow-2xl rounded-sm pointer-events-none" />
+                        
+                        <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-white pointer-events-none" />
+                        <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-white pointer-events-none" />
+                        <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-white pointer-events-none" />
+                        <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-white pointer-events-none" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-center space-x-2 text-sm text-gray-500 mb-3 px-4 sm:px-6 lg:px-8">
+                    <Move className="w-4 h-4" />
+                    <span>Trage imaginea pentru a ajusta poziția</span>
+                  </div>
+                </div>
+
+                {/* Action Button */}
+                <div className="px-4 sm:px-6 lg:px-8">
+                  <button
+                    onClick={handleSaveCurrentImage}
+                    disabled={isAddingToCart}
+                    className="w-full px-6 py-4 bg-[#6994FF] text-white rounded-lg hover:bg-[#5578DD] transition-colors flex items-center justify-center space-x-2 shadow-lg text-base disabled:opacity-70 disabled:cursor-not-allowed"
+                  >
+                    {isAddingToCart && currentImageIndex >= uploadedImages.length - 1 ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        <span>Se încarcă...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShoppingCart className="w-5 h-5" />
+                        <span>
+                          {currentImageIndex < uploadedImages.length - 1 
+                            ? 'Salvează și Continuă' 
+                            : 'Adaugă în Coș'}
+                        </span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
-};
-
-const cropImageFromFrame = async (
-  imageUrl: string,
-  cropWidth: number,
-  cropHeight: number,
-  imagePosition: { x: number; y: number },
-  imageScale: number,
-  imgDisplayWidth: number,
-  imgDisplayHeight: number
-): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      // Get the actual dimensions of the loaded image
-      const imgWidth = img.naturalWidth;
-      const imgHeight = img.naturalHeight;
-
-      // DON'T use outputScale - just use original resolution!
-      const canvas = document.createElement('canvas');
-      canvas.width = cropWidth;
-      canvas.height = cropHeight;
-      const ctx = canvas.getContext('2d');
-
-      if (!ctx) {
-        reject(new Error('Failed to get canvas context'));
-        return;
-      }
-
-      // Fill with white background
-      ctx.fillStyle = 'white';
-      ctx.fillRect(0, 0, cropWidth, cropHeight);
-
-      // The image displays at imgDisplayWidth x imgDisplayHeight (before transforms)
-      // Then it's scaled by imageScale
-      const scaledWidth = imgDisplayWidth * imageScale;
-      const scaledHeight = imgDisplayHeight * imageScale;
-
-      // Calculate position: image center is at (cropWidth/2, cropHeight/2) + imagePosition offset
-      const imageCenterX = cropWidth / 2 + imagePosition.x;
-      const imageCenterY = cropHeight / 2 + imagePosition.y;
-      
-      // Image top-left corner
-      const imageLeft = imageCenterX - scaledWidth / 2;
-      const imageTop = imageCenterY - scaledHeight / 2;
-
-      // Calculate what part of the scaled image is visible in the crop frame
-      const visibleLeft = Math.max(0, -imageLeft);
-      const visibleTop = Math.max(0, -imageTop);
-      const visibleRight = Math.min(scaledWidth, cropWidth - imageLeft);
-      const visibleBottom = Math.min(scaledHeight, cropHeight - imageTop);
-
-      // Map back to source image coordinates
-      const srcLeft = (visibleLeft / scaledWidth) * imgWidth;
-      const srcTop = (visibleTop / scaledHeight) * imgHeight;
-      const srcWidth = ((visibleRight - visibleLeft) / scaledWidth) * imgWidth;
-      const srcHeight = ((visibleBottom - visibleTop) / scaledHeight) * imgHeight;
-
-      // Calculate destination in output canvas
-      const destLeft = Math.max(0, imageLeft);
-      const destTop = Math.max(0, imageTop);
-      const destWidth = visibleRight - visibleLeft;
-      const destHeight = visibleBottom - visibleTop;
-
-      // Draw the cropped portion
-      ctx.drawImage(
-        img,
-        srcLeft,
-        srcTop,
-        srcWidth,
-        srcHeight,
-        destLeft,
-        destTop,
-        destWidth,
-        destHeight
-      );
-
-      // Export as base64 with maximum quality (1.0 = 100%)
-      const croppedImage = canvas.toDataURL('image/jpeg', 1.0); // Changed from 0.95 to 1.0 for max quality
-      resolve(croppedImage);
-    };
-    img.onerror = () => {
-      reject(new Error('Failed to load image'));
-    };
-    img.crossOrigin = 'anonymous';
-    img.src = imageUrl;
-  });
 };

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Mail, Phone, MapPin, Clock, Send, Facebook, Instagram, MessageCircle } from 'lucide-react';
+import { Mail, Phone, Send, Facebook, Instagram, MessageCircle, Building2 } from 'lucide-react';
 
 export const ContactPage: React.FC = () => {
   const [formData, setFormData] = useState({
@@ -46,10 +46,17 @@ export const ContactPage: React.FC = () => {
               <Phone className="w-8 h-8 text-white" />
             </div>
             <h3 className="text-xl text-gray-900 mb-2">Telefon</h3>
-            <p className="text-gray-700 mb-2">Suntem disponibili Luni - Vineri</p>
-            <a href="tel:+40752109002" className="text-yellow-600 hover:text-yellow-700">
+            <a href="tel:+40752109002" className="text-yellow-600 hover:text-yellow-700 block mb-4 text-lg font-medium">
               +40 752 109 002
             </a>
+            <div className="border-t border-yellow-200 pt-4 mt-4">
+              <h4 className="text-gray-900 font-medium mb-2">Program</h4>
+              <div className="space-y-1 text-sm text-gray-700">
+                <p>Luni - Vineri: 09:00 - 18:00</p>
+                <p>Sâmbătă: 10:00 - 16:00</p>
+                <p>Duminică: Închis</p>
+              </div>
+            </div>
           </div>
 
           <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-8 text-center">
@@ -63,13 +70,37 @@ export const ContactPage: React.FC = () => {
             </a>
           </div>
 
-          <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-8 text-center">
-            <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-4">
-              <MapPin className="w-8 h-8 text-white" />
+          <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg p-8">
+            <div className="w-16 h-16 bg-[#6994FF] rounded-full flex items-center justify-center mx-auto mb-4">
+              <Building2 className="w-8 h-8 text-white" />
             </div>
-            <h3 className="text-xl text-gray-900 mb-2">Adresă</h3>
-            <p className="text-gray-700 mb-2">Vizitează showroom-ul nostru</p>
-            <p className="text-green-600">Str. Bisericii, nr. 5, Movilita, Ialomita</p>
+            <h3 className="text-xl text-gray-900 mb-4 text-center">Detalii Companie</h3>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-600">Denumire:</span>
+                <span className="text-gray-900 font-medium">TINYPODS SRL</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">CUI:</span>
+                <span className="text-gray-900">50508421</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Nr. Reg. Com.:</span>
+                <span className="text-gray-900">J2024019956002</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">EUID:</span>
+                <span className="text-gray-900 text-xs">ROONRC.J2024019956002</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Cod Postal:</span>
+                <span className="text-gray-900">077145</span>
+              </div>
+              <div className="flex flex-col pt-2 border-t border-gray-200">
+                <span className="text-gray-600 mb-1">Adresă:</span>
+                <span className="text-gray-900">Str. Busteni nr. 1, Pantelimon, Ilfov</span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -204,20 +235,6 @@ export const ContactPage: React.FC = () => {
 
             <div className="space-y-6">
               <div className="bg-gray-50 rounded-lg p-6">
-                <div className="flex items-start space-x-4">
-                  <Clock className="w-6 h-6 text-yellow-600 flex-shrink-0 mt-1" />
-                  <div>
-                    <h3 className="text-gray-900 mb-2">Program</h3>
-                    <div className="space-y-1 text-gray-700">
-                      <p>Luni - Vineri: 09:00 - 18:00</p>
-                      <p>Sâmbătă: 10:00 - 16:00</p>
-                      <p>Duminică: Închis</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-gray-50 rounded-lg p-6">
                 <h3 className="text-gray-900 mb-3">Întrebări Frecvente</h3>
                 <div className="space-y-3">
                   <details className="group">
@@ -251,14 +268,14 @@ export const ContactPage: React.FC = () => {
 
               <div className="aspect-video bg-gray-100 rounded-lg overflow-hidden">
                 <iframe
-                  src="https://maps.google.com/maps?q=44.631958,26.476440&z=17&output=embed"
+                  src="https://maps.google.com/maps?q=44.44522490293315,26.22213754424262&z=17&output=embed"
                   width="100%"
                   height="100%"
                   style={{ border: 0 }}
                   allowFullScreen
                   loading="lazy"
                   referrerPolicy="no-referrer-when-downgrade"
-                  title="Harta locație BlueHand Canvas - Str. Bisericii, nr. 5, Movilita, Ialomita"
+                  title="Harta locație BlueHand Canvas - Str. Busteni nr. 1, Pantelimon, Ilfov"
                 />
               </div>
             </div>

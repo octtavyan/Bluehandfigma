@@ -17,18 +17,15 @@ export const useHeroSlides = () => {
         const cachedSlides = CacheService.get<HeroSlide[]>(CACHE_KEYS.HERO_SLIDES);
         
         if (cachedSlides && cachedSlides.length > 0) {
-          console.log('⚡ Hero slides loaded from cache (instant display):', cachedSlides.length);
           setHeroSlides(cachedSlides);
           setIsLoading(false);
           return;
         }
 
         // If no cache, fetch from Supabase
-        console.log('📡 Fetching hero slides from Supabase...');
         const { heroSlidesService } = await import('../lib/supabaseDataService');
         const slides = await heroSlidesService.getAll();
         
-        console.log('✅ Hero slides fetched:', slides.length);
         setHeroSlides(slides);
         
         // Cache for next time
