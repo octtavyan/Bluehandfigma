@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
-import { Check, CreditCard, Truck, Loader2 } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { useAdmin } from '../context/AdminContext';
+import { Check, CreditCard, Truck, Loader2 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import type { CanvasItemType } from '../context/AdminContext';
 import { romanianCounties } from '../data/romaniaData';
@@ -255,7 +255,22 @@ export const CheckoutPage = () => {
       // If payment method is CARD, try to initiate payment FIRST before creating order
       if (paymentMethod === 'card') {
         try {
-          console.log('💳 Initiating Netopia payment...');
+          // Check which payment gateway is active
+          const gatewayResponse = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/payment-gateway/settings`,
+            {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${publicAnonKey}`,
+              },
+            }
+          );
+          
+          const gatewayData = await gatewayResponse.json();
+          const activeGateway = gatewayData.settings?.activeGateway || 'netopia';
+
+          console.log(`💳 Active payment gateway: ${activeGateway}`);
+          console.log('💳 Initiating payment...');
           console.log('📝 Payment details:', {
             amount: totalPrice,
             customerEmail: formData.email,
@@ -266,8 +281,13 @@ export const CheckoutPage = () => {
           // Generate a unique order number for payment
           const tempOrderNumber = `BHC-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-TEMP-${Date.now().toString().slice(-4)}`;
 
+          // Use the appropriate payment endpoint based on active gateway
+          const paymentEndpoint = activeGateway === 'revolut' 
+            ? '/revolut/start-payment'
+            : '/netopia/start-payment-v4';  // Using NEW REST API v4.0
+
           const paymentResponse = await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/netopia/start-payment`,
+            `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500${paymentEndpoint}`,
             {
               method: 'POST',
               headers: {
@@ -279,6 +299,8 @@ export const CheckoutPage = () => {
                 amount: totalPrice,
                 customerEmail: formData.email,
                 customerName: `${formData.firstName} ${formData.lastName}`,
+                customerPhone: formData.phone,
+                customerAddress: `${formData.address}, ${formData.city}, ${formData.county}`,
                 returnUrl: `${window.location.origin}/payment-success`,
                 // Include all order data for later creation after payment success
                 orderData: {
@@ -305,20 +327,32 @@ export const CheckoutPage = () => {
             }
           );
 
-          console.log('📥 Payment response status:', paymentResponse.status);
+          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          console.log('📥 PAYMENT API RESPONSE');
+          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          console.log('Response status:', paymentResponse.status);
+          console.log('Response statusText:', paymentResponse.statusText);
+          console.log('Response ok:', paymentResponse.ok);
           
           if (!paymentResponse.ok) {
             const errorText = await paymentResponse.text();
-            console.error('❌ HTTP Error Response:', errorText);
+            console.error('❌ HTTP ERROR RESPONSE:');
+            console.error('Status:', paymentResponse.status);
+            console.error('Response body:', errorText);
+            console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
             throw new Error(`HTTP ${paymentResponse.status}: ${errorText}`);
           }
 
           const paymentData = await paymentResponse.json();
-          console.log('📥 Payment response data:', paymentData);
+          console.log('✅ Success response data:', JSON.stringify(paymentData, null, 2));
+          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-          if (paymentData.success && paymentData.redirectUrl) {
-            console.log('✅ Payment initialized successfully, redirecting to Netopia...');
-            console.log('🔗 Redirect URL:', paymentData.redirectUrl);
+          // Get redirect URL (different property names for different gateways)
+          const redirectUrl = paymentData.redirectUrl || paymentData.paymentUrl;
+
+          if (paymentData.success && redirectUrl) {
+            console.log(`✅ Payment initialized successfully, redirecting to ${activeGateway}...`);
+            console.log('🔗 Redirect URL:', redirectUrl);
             
             // Save order data to sessionStorage so we can create it after payment success
             sessionStorage.setItem('pendingOrderData', JSON.stringify({
@@ -345,8 +379,8 @@ export const CheckoutPage = () => {
             // Clear cart before redirect (will be restored if payment fails)
             clearCart();
             
-            // Redirect to Netopia payment page
-            window.location.href = paymentData.redirectUrl;
+            // Redirect to payment gateway
+            window.location.href = redirectUrl;
             
             return; // Don't continue to confirmation step
           } else {
@@ -354,12 +388,22 @@ export const CheckoutPage = () => {
             throw new Error(paymentData.error || 'Failed to initialize payment');
           }
         } catch (paymentError) {
-          console.error('❌ Payment initialization error:', paymentError);
+          console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          console.error('❌ CHECKOUT PAYMENT ERROR');
+          console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          console.error('Error type:', paymentError?.constructor?.name);
+          console.error('Error object:', paymentError);
+          console.error('Error message:', paymentError instanceof Error ? paymentError.message : String(paymentError));
+          if (paymentError instanceof Error && paymentError.stack) {
+            console.error('Stack trace:', paymentError.stack);
+          }
+          console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          
           const errorMessage = paymentError instanceof Error ? paymentError.message : 'Unknown error';
           
           // FALLBACK: Switch to cash on delivery if card payment fails
           console.log('⚠️ Card payment failed, falling back to cash on delivery...');
-          toast.error('Plata cu cardul nu este disponibilă momentan. Comanda va fi procesată cu plată la livrare.');
+          toast.error(`Plata cu cardul nu este disponibilă momentan: ${errorMessage}\n\nComanda va fi procesată cu plată la livrare.`);
           
           // Update payment method to cash
           setPaymentMethod('cash');

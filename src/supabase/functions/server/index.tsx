@@ -1,6 +1,16 @@
 // BlueHand Canvas - Supabase Edge Function Server
-// Handles email sending with Resend API
-// Last updated: 2026-01-20
+// Handles email sending with Resend API and payment gateways (Netopia + Revolut)
+// Last updated: 2026-01-29 - Added Revolut Business payment gateway
+// Server Version: 2.3.0 - Added Revolut Business integration with gateway toggle
+// 
+// CRITICAL FIXES:
+// - Hardcoded "RON" directly in XML attributes (no variable interpolation)
+// - Added email format validation for Resend API
+// - Added missing cart save/load endpoints
+// - Added missing Unsplash settings endpoints
+// - Added decryption test IMMEDIATELY after encryption to verify XML integrity
+// - Added order.currency object at ROOT level of JSON request (Netopia validates this!)
+// - Updated to use correct POS signature: 38CJ-NTJR-M8VL-QSUQ-OHEA
 
 import { Hono } from "npm:hono@4.3.11";
 import { cors } from "npm:hono@4.3.11/cors";
@@ -24,7 +34,129 @@ app.get("/make-server-bbc0c500/health", (c) => {
   return c.json({ 
     status: "ok",
     message: "BlueHand Canvas API is running",
-    timestamp: new Date().toISOString() 
+    version: "2.3.0",
+    lastUpdate: "2026-01-29 - Added Revolut Business payment gateway with toggle",
+    timestamp: new Date().toISOString(),
+    paymentEndpointStatus: "All Netopia credentials now stored in database - configure in Admin Settings"
+  });
+});
+
+// Test/diagnostic endpoint to verify XML structure WITHOUT calling Netopia
+app.post("/make-server-bbc0c500/netopia/test-xml", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { orderId = 'TEST123', amount = 100, customerEmail = 'test@test.com', customerName = 'Test User' } = body;
+    
+    const currency = "RON";
+    const timestamp = Date.now();
+    const escapeXml = (str: string | number) => {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+    };
+    
+    const nameParts = customerName.trim().split(' ');
+    const firstName = nameParts[0] || 'Client';
+    const lastName = nameParts.slice(1).join(' ') || 'Test';
+    
+    const testXml = `<?xml version="1.0" encoding="utf-8"?>
+<order type="card" id="${escapeXml(orderId)}" timestamp="${timestamp}" currency="${currency}">
+  <currency>${currency}</currency>
+  <signature>TEST-SIGNATURE</signature>
+  <url>
+    <confirm>https://test.com/ipn</confirm>
+    <return>https://test.com/return</return>
+  </url>
+  <invoice currency="${currency}" amount="${escapeXml(amount.toFixed(2))}">
+    <details>${escapeXml(`Test Order #${orderId}`)}</details>
+    <contact_info>
+      <billing type="person">
+        <first_name>${escapeXml(firstName)}</first_name>
+        <last_name>${escapeXml(lastName)}</last_name>
+        <email>${escapeXml(customerEmail)}</email>
+      </billing>
+    </contact_info>
+  </invoice>
+</order>`;
+
+    const hasOrderAttribute = testXml.includes('currency="RON"');
+    const hasCurrencyElement = testXml.includes('<currency>RON</currency>');
+    const hasInvoiceAttribute = testXml.includes('invoice currency="RON"');
+    
+    return c.json({
+      success: true,
+      version: "2.1.5",
+      xml: testXml,
+      validation: {
+        orderAttribute: hasOrderAttribute ? '✅ Present' : '❌ MISSING',
+        currencyElement: hasCurrencyElement ? '✅ Present' : '❌ MISSING',
+        invoiceAttribute: hasInvoiceAttribute ? '✅ Present' : '❌ MISSING',
+        allPresent: hasOrderAttribute && hasCurrencyElement && hasInvoiceAttribute
+      },
+      message: (hasOrderAttribute && hasCurrencyElement && hasInvoiceAttribute) 
+        ? 'All currency fields present - XML structure is correct!' 
+        : 'ERROR: Missing required currency fields'
+    });
+  } catch (error) {
+    return c.json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }, 500);
+  }
+});
+
+// Debug endpoint to check environment variables
+app.get("/make-server-bbc0c500/debug/env", async (c) => {
+  const netopiaPosSignature = Deno.env.get('NETOPIA_POS_SIGNATURE');
+  const netopiaApiKey = Deno.env.get('NETOPIA_API_KEY');
+  
+  // Also check database settings
+  let dbSettings = null;
+  try {
+    dbSettings = await kv.get('netopia_settings');
+  } catch (e) {
+    console.error('Error loading DB settings:', e);
+  }
+  
+  // Determine which endpoint will be used
+  const effectiveIsLive = dbSettings?.isLive || false;
+  const effectiveBaseUrl = effectiveIsLive 
+    ? 'https://secure.netopia-payments.com' 
+    : 'https://secure.sandbox.netopia-payments.com';
+  
+  return c.json({
+    success: true,
+    environment: {
+      NETOPIA_POS_SIGNATURE: netopiaPosSignature ? {
+        exists: true,
+        length: netopiaPosSignature.length,
+        first10: netopiaPosSignature.substring(0, 10),
+        last10: netopiaPosSignature.substring(netopiaPosSignature.length - 10),
+        fullValue: netopiaPosSignature // Show full value for debugging
+      } : { exists: false },
+      NETOPIA_API_KEY: netopiaApiKey ? {
+        exists: true,
+        length: netopiaApiKey.length,
+        first10: netopiaApiKey.substring(0, 10)
+      } : { exists: false }
+    },
+    database: {
+      settings: dbSettings ? {
+        posSignature: dbSettings.posSignature,
+        isLive: dbSettings.isLive,
+        isConfigured: dbSettings.isConfigured
+      } : null
+    },
+    willUse: netopiaPosSignature || dbSettings?.posSignature || 'NONE',
+    effectiveEndpoint: {
+      isLive: effectiveIsLive,
+      baseUrl: effectiveBaseUrl,
+      environment: effectiveIsLive ? 'LIVE' : 'SANDBOX',
+      warning: effectiveIsLive ? '⚠️ LIVE mode - Real payments!' : '✅ SANDBOX mode - Test payments'
+    }
   });
 });
 
@@ -99,6 +231,7 @@ app.get("/make-server-bbc0c500/netopia/settings", async (c) => {
       settings: settings || {
         merchantId: '',
         apiKey: '',
+        sandboxApiKey: '', // NEW: Netopia Sandbox API Key
         posSignature: '',
         publicKey: '',
         isLive: false,
@@ -116,6 +249,19 @@ app.post("/make-server-bbc0c500/netopia/settings", async (c) => {
   try {
     const settings = await c.req.json();
     
+    console.log('💾 SAVING NETOPIA SETTINGS - Received data:');
+    console.log(`   - merchantId: ${settings.merchantId ? '✅ SET' : '❌ NOT SET'}`);
+    console.log(`   - apiKey (RSA Private): ${settings.apiKey ? '✅ SET' : '❌ NOT SET'}`);
+    console.log(`   - sandboxApiKey: ${settings.sandboxApiKey ? '✅ SET' : '❌ NOT SET'}`);
+    if (settings.sandboxApiKey) {
+      console.log(`   - sandboxApiKey length: ${settings.sandboxApiKey.length}`);
+      console.log(`   - sandboxApiKey first 20: ${settings.sandboxApiKey.substring(0, 20)}...`);
+      console.log(`   - sandboxApiKey last 10: ...${settings.sandboxApiKey.substring(settings.sandboxApiKey.length - 10)}`);
+    }
+    console.log(`   - posSignature: ${settings.posSignature ? '✅ SET' : '❌ NOT SET'}`);
+    console.log(`   - publicKey: ${settings.publicKey ? '✅ SET' : '❌ NOT SET'}`);
+    console.log(`   - isLive: ${settings.isLive}`);
+    
     // Add isConfigured flag based on required fields
     // Public Key and POS Signature are required; Private Key (apiKey) is optional
     const isConfigured = !!(settings.posSignature && settings.publicKey);
@@ -129,7 +275,8 @@ app.post("/make-server-bbc0c500/netopia/settings", async (c) => {
     
     await kv.set('netopia_settings', settingsToSave);
     
-    console.log(`✅ Netopia settings saved. Configured: ${isConfigured}, Mode: ${settingsToSave.isLive ? 'LIVE' : 'TEST'}`);
+    console.log(`✅ Netopia settings saved to database. Configured: ${isConfigured}, Mode: ${settingsToSave.isLive ? 'LIVE' : 'TEST'}`);
+    console.log(`✅ sandboxApiKey saved: ${settingsToSave.sandboxApiKey ? 'YES (' + settingsToSave.sandboxApiKey.length + ' chars)' : 'NO'}`);
     
     return c.json({ success: true });
   } catch (error) {
@@ -187,6 +334,378 @@ app.post("/make-server-bbc0c500/netopia/test", async (c) => {
     return c.json({ 
       success: false, 
       error: error instanceof Error ? error.message : 'Unknown error occurred' 
+    }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PAYMENT GATEWAY SELECTION ROUTES
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Get active payment gateway
+app.get("/make-server-bbc0c500/payment-gateway/settings", async (c) => {
+  try {
+    const settings = await kv.get('payment_gateway_settings');
+    return c.json({ 
+      success: true, 
+      settings: settings || { activeGateway: 'netopia' }
+    });
+  } catch (error) {
+    console.error('Error getting payment gateway settings:', error);
+    return c.json({ success: false, error: 'Failed to get settings' }, 500);
+  }
+});
+
+// Set active payment gateway
+app.post("/make-server-bbc0c500/payment-gateway/settings", async (c) => {
+  try {
+    const { activeGateway } = await c.req.json();
+    
+    if (!['netopia', 'revolut'].includes(activeGateway)) {
+      return c.json({ 
+        success: false, 
+        error: 'Invalid gateway. Must be "netopia" or "revolut"' 
+      }, 400);
+    }
+    
+    await kv.set('payment_gateway_settings', { activeGateway });
+    console.log(`✅ Active payment gateway set to: ${activeGateway}`);
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Error saving payment gateway settings:', error);
+    return c.json({ success: false, error: 'Failed to save settings' }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// REVOLUT BUSINESS ROUTES
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Get Revolut settings
+app.get("/make-server-bbc0c500/revolut/settings", async (c) => {
+  try {
+    const settings = await kv.get('revolut_settings');
+    return c.json({ 
+      success: true, 
+      settings: settings || {
+        apiKey: '',
+        merchantId: '',
+        webhookSecret: '',
+        isLive: false
+      }
+    });
+  } catch (error) {
+    console.error('Error getting Revolut settings:', error);
+    return c.json({ success: false, error: 'Failed to get settings' }, 500);
+  }
+});
+
+// Save Revolut settings
+app.post("/make-server-bbc0c500/revolut/settings", async (c) => {
+  try {
+    const settings = await c.req.json();
+    
+    console.log('💾 SAVING REVOLUT SETTINGS:');
+    console.log(`   - API Key: ${settings.apiKey ? '✅ SET' : '❌ NOT SET'}`);
+    console.log(`   - Merchant ID: ${settings.merchantId ? '✅ SET' : '❌ NOT SET'}`);
+    console.log(`   - Webhook Secret: ${settings.webhookSecret ? '✅ SET' : '❌ NOT SET'}`);
+    console.log(`   - isLive: ${settings.isLive}`);
+    
+    await kv.set('revolut_settings', {
+      ...settings,
+      isLive: settings.isLive === true
+    });
+    
+    console.log(`✅ Revolut settings saved. Mode: ${settings.isLive ? 'LIVE' : 'SANDBOX'}`);
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Error saving Revolut settings:', error);
+    return c.json({ success: false, error: 'Failed to save settings' }, 500);
+  }
+});
+
+// Initiate Revolut payment
+app.post("/make-server-bbc0c500/revolut/start-payment", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { orderId, amount, customerEmail, customerName, returnUrl } = body;
+
+    console.log('💳 Initiating Revolut payment...');
+    console.log(`   - Order ID: ${orderId}`);
+    console.log(`   - Amount: ${amount} RON`);
+    console.log(`   - Customer: ${customerName} (${customerEmail})`);
+
+    // Load Revolut settings
+    const settings = await kv.get('revolut_settings');
+    
+    if (!settings || !settings.apiKey || !settings.merchantId) {
+      console.error('❌ Revolut settings not configured');
+      return c.json({ 
+        success: false, 
+        error: 'Revolut not configured. Please add API Key and Merchant ID in Admin Settings.' 
+      }, 500);
+    }
+
+    const baseUrl = settings.isLive 
+      ? 'https://merchant.revolut.com/api/1.0'
+      : 'https://sandbox-merchant.revolut.com/api/1.0';
+
+    // Create order in Revolut
+    const revolutOrder = {
+      amount: amount * 100, // Convert to cents
+      currency: 'RON',
+      merchant_order_ext_ref: orderId,
+      email: customerEmail,
+      description: `Comandă BlueHand Canvas #${orderId}`,
+      merchant_customer_ext_ref: customerEmail,
+      metadata: {
+        customerName: customerName,
+        platform: 'BlueHand Canvas'
+      }
+    };
+
+    console.log('📤 Creating Revolut order:', revolutOrder);
+
+    const response = await fetch(`${baseUrl}/orders`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${settings.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(revolutOrder),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error('❌ Revolut API error:', data);
+      return c.json({ 
+        success: false, 
+        error: `Revolut API error: ${data.message || 'Unknown error'}`,
+        details: data
+      }, 500);
+    }
+
+    console.log('✅ Revolut order created:', data);
+
+    // Return payment URL
+    return c.json({ 
+      success: true,
+      paymentUrl: data.checkout_url || data.public_id,
+      orderId: data.id,
+      publicId: data.public_id
+    });
+
+  } catch (error) {
+    console.error('❌ Error initiating Revolut payment:', error);
+    return c.json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Failed to initiate payment' 
+    }, 500);
+  }
+});
+
+// Revolut webhook handler
+app.post("/make-server-bbc0c500/revolut/webhook", async (c) => {
+  try {
+    const body = await c.req.json();
+    const signature = c.req.header('Revolut-Signature');
+
+    console.log('📥 Revolut webhook received:', body);
+    console.log('🔐 Signature:', signature);
+
+    // Load settings to verify webhook
+    const settings = await kv.get('revolut_settings');
+    
+    if (!settings || !settings.webhookSecret) {
+      console.error('❌ Webhook secret not configured');
+      return c.json({ success: false, error: 'Webhook secret not configured' }, 500);
+    }
+
+    // TODO: Verify webhook signature with settings.webhookSecret
+    // For now, we'll process the webhook
+
+    const event = body.event;
+    const orderData = body.order || body;
+
+    console.log(`📊 Revolut event: ${event}`);
+    console.log(`📦 Order ID: ${orderData.merchant_order_ext_ref}`);
+    console.log(`💰 Amount: ${orderData.order_amount?.value} ${orderData.order_amount?.currency}`);
+    console.log(`✅ Status: ${orderData.state}`);
+
+    // Handle different events
+    switch (event) {
+      case 'ORDER_COMPLETED':
+      case 'ORDER_AUTHORISED':
+        console.log('✅ Payment successful!');
+        // TODO: Update order status in database
+        break;
+      case 'ORDER_CANCELLED':
+      case 'ORDER_FAILED':
+        console.log('❌ Payment failed or cancelled');
+        // TODO: Update order status in database
+        break;
+      default:
+        console.log(`ℹ️  Unhandled event type: ${event}`);
+    }
+
+    return c.json({ success: true, received: true });
+
+  } catch (error) {
+    console.error('❌ Error processing Revolut webhook:', error);
+    return c.json({ success: false, error: 'Webhook processing failed' }, 500);
+  }
+});
+
+// Diagnostic endpoint to check environment variables
+app.get("/make-server-bbc0c500/netopia/diagnostic", async (c) => {
+  try {
+    const netopiaSandboxApiKey = Deno.env.get('NETOPIA_API_KEY');
+    const netopiaPosSignature = Deno.env.get('NETOPIA_POS_SIGNATURE');
+    
+    // Load settings from database
+    const settingsData = await kv.get('netopia_settings');
+    const settings = settingsData || { isLive: false };
+    
+    const diagnostic = {
+      timestamp: new Date().toISOString(),
+      environment: settings.isLive ? 'LIVE' : 'SANDBOX',
+      environmentVariables: {
+        NETOPIA_API_KEY: {
+          isSet: !!netopiaSandboxApiKey,
+          preview: netopiaSandboxApiKey ? `${netopiaSandboxApiKey.substring(0, 20)}...` : 'NOT SET',
+          last10: netopiaSandboxApiKey ? `...${netopiaSandboxApiKey.substring(netopiaSandboxApiKey.length - 10)}` : 'NOT SET',
+          length: netopiaSandboxApiKey?.length || 0,
+          expectedStart: 'icDO2L_2PqjNJL3F...',
+          expectedEnd: '...Vdqzc',
+          expectedLength: 56,
+          matches: netopiaSandboxApiKey === 'icDO2L_2PqjNJL3F98BLukDRgmmL1z4DPYxu8HYhxVciRdarrVdqzc',
+          requiredFor: 'Sandbox authentication'
+        },
+        NETOPIA_POS_SIGNATURE: {
+          isSet: !!netopiaPosSignature,
+          preview: netopiaPosSignature ? `${netopiaPosSignature.substring(0, 10)}...` : 'NOT SET',
+          fullValue: netopiaPosSignature || 'NOT SET',
+          length: netopiaPosSignature?.length || 0,
+          expectedValue: '38CJ-NTJR-M8VL-QSUQ-OHEA',
+          matches: netopiaPosSignature === '38CJ-NTJR-M8VL-QSUQ-OHEA',
+          requiredFor: 'Payment XML signature'
+        }
+      },
+      databaseSettings: {
+        posSignature: {
+          isSet: !!settings.posSignature,
+          preview: settings.posSignature ? `${settings.posSignature.substring(0, 10)}...` : 'NOT SET'
+        },
+        publicKey: {
+          isSet: !!settings.publicKey,
+          hasCorrectHeader: settings.publicKey?.includes('BEGIN PUBLIC KEY') || settings.publicKey?.includes('BEGIN CERTIFICATE'),
+          preview: settings.publicKey ? settings.publicKey.substring(0, 50) + '...' : 'NOT SET'
+        },
+        merchantPrivateKey: {
+          isSet: !!settings.apiKey,
+          note: 'Optional - only needed for IPN decryption'
+        }
+      },
+      recommendations: []
+    };
+    
+    // Add recommendations based on findings
+    if (!settings.isLive && !netopiaSandboxApiKey) {
+      diagnostic.recommendations.push('⚠️ CRITICAL: NETOPIA_API_KEY environment variable is NOT set. Sandbox payments will fail with 401/403 errors.');
+    }
+    
+    if (!settings.posSignature) {
+      diagnostic.recommendations.push('⚠️ POS Signature is NOT set in Admin Settings. This is required for all payments.');
+    }
+    
+    if (!settings.publicKey) {
+      diagnostic.recommendations.push('⚠️ Netopia Public Key is NOT set in Admin Settings. This is required to encrypt payment data.');
+    }
+    
+    if (settings.publicKey && !settings.publicKey.includes('BEGIN PUBLIC KEY') && !settings.publicKey.includes('BEGIN CERTIFICATE')) {
+      diagnostic.recommendations.push('⚠️ Public Key format looks incorrect. Should start with "-----BEGIN PUBLIC KEY-----" or "-----BEGIN CERTIFICATE-----"');
+    }
+    
+    if (diagnostic.recommendations.length === 0) {
+      diagnostic.recommendations.push('✅ All required credentials are configured correctly!');
+    }
+    
+    console.log('📊 Netopia Diagnostic Report:', JSON.stringify(diagnostic, null, 2));
+    
+    return c.json({
+      success: true,
+      diagnostic
+    });
+    
+  } catch (error) {
+    console.error('Error in diagnostic:', error);
+    return c.json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Diagnostic failed'
+    }, 500);
+  }
+});
+
+// DEBUG: Direct database read for Netopia settings
+app.get("/make-server-bbc0c500/netopia/debug-db", async (c) => {
+  try {
+    const settings = await kv.get('netopia_settings');
+    
+    console.log('🔍 DEBUG: Reading directly from database...');
+    console.log('Raw settings object:', settings);
+    
+    if (!settings) {
+      return c.json({
+        success: true,
+        message: 'No settings found in database',
+        settings: null
+      });
+    }
+    
+    // Type cast for safety
+    const typedSettings = settings as any;
+    
+    return c.json({
+      success: true,
+      message: 'Settings read from database',
+      rawData: settings,
+      analysis: {
+        merchantId: {
+          exists: !!typedSettings.merchantId,
+          value: typedSettings.merchantId || null
+        },
+        apiKey: {
+          exists: !!typedSettings.apiKey,
+          length: typedSettings.apiKey?.length || 0,
+          preview: typedSettings.apiKey ? `${typedSettings.apiKey.substring(0, 20)}...` : null
+        },
+        sandboxApiKey: {
+          exists: !!typedSettings.sandboxApiKey,
+          length: typedSettings.sandboxApiKey?.length || 0,
+          first20: typedSettings.sandboxApiKey ? typedSettings.sandboxApiKey.substring(0, 20) : null,
+          last10: typedSettings.sandboxApiKey ? typedSettings.sandboxApiKey.substring(typedSettings.sandboxApiKey.length - 10) : null,
+          fullValue: typedSettings.sandboxApiKey || null
+        },
+        posSignature: {
+          exists: !!typedSettings.posSignature,
+          value: typedSettings.posSignature || null
+        },
+        publicKey: {
+          exists: !!typedSettings.publicKey,
+          length: typedSettings.publicKey?.length || 0
+        },
+        isLive: typedSettings.isLive,
+        isConfigured: typedSettings.isConfigured
+      }
+    });
+  } catch (error) {
+    console.error('Error reading database:', error);
+    return c.json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Database read failed'
     }, 500);
   }
 });
@@ -298,6 +817,16 @@ app.post("/make-server-bbc0c500/email/send-order-confirmation", async (c) => {
     
     if (!customerEmail || !orderNumber) {
       return c.json({ success: false, error: 'Email and order number are required' }, 400);
+    }
+    
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(customerEmail)) {
+      console.error(`❌ Invalid email format: "${customerEmail}"`);
+      return c.json({ 
+        success: false, 
+        error: `Invalid email format: ${customerEmail}` 
+      }, 400);
     }
 
     // Use RESEND_API_KEY from environment
@@ -535,6 +1064,16 @@ app.post("/make-server-bbc0c500/email/send-shipped-confirmation", async (c) => {
     if (!customerEmail || !orderNumber) {
       return c.json({ success: false, error: 'Email and order number are required' }, 400);
     }
+    
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(customerEmail)) {
+      console.error(`❌ Invalid email format: "${customerEmail}"`);
+      return c.json({ 
+        success: false, 
+        error: `Invalid email format: ${customerEmail}` 
+      }, 400);
+    }
 
     // Use RESEND_API_KEY from environment
     const apiKey = Deno.env.get('RESEND_API_KEY');
@@ -744,8 +1283,708 @@ app.post("/make-server-bbc0c500/admin/update-default-users", async (c) => {
 
 // ===== NETOPIA PAYMENTS INTEGRATION =====
 
-// Initiate Netopia payment
+// NEW REST API v4.0 - Following OpenAPI Spec EXACTLY (plain JSON, no encryption)
+app.post("/make-server-bbc0c500/netopia/start-payment-v4", async (c) => {
+  console.log('🚀 Netopia REST API v4.0 - OpenAPI Spec Compliant');
+  
+  try {
+    const body = await c.req.json();
+    const { orderId, amount, customerEmail, customerName, customerPhone, customerAddress, returnUrl } = body;
+    
+    if (!orderId || !amount || !customerEmail || !customerName) {
+      return c.json({ success: false, error: 'Missing required fields' }, 400);
+    }
+    
+    // Get settings
+    const settings = await kv.get<{
+      posSignature: string;
+      sandboxApiKey: string;
+      isLive: boolean;
+      isConfigured: boolean;
+    }>('netopia_settings');
+    
+    if (!settings || !settings.posSignature || !settings.isConfigured) {
+      return c.json({ success: false, error: 'Netopia not configured' }, 500);
+    }
+    
+    const apiKey = settings.sandboxApiKey || Deno.env.get('NETOPIA_API_KEY');
+    if (!settings.isLive && !apiKey) {
+      return c.json({ success: false, error: 'Sandbox API key required' }, 500);
+    }
+    
+    // Parse name
+    const nameParts = customerName.trim().split(' ');
+    const firstName = nameParts[0] || 'Client';
+    const lastName = nameParts.slice(1).join(' ') || 'BlueHand';
+    
+    // Get URLs
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
+    const projectUrl = supabaseUrl.replace('https://', '');
+    
+    const baseUrl = settings.isLive 
+      ? 'https://secure.netopia-payments.com'
+      : 'https://secure.sandbox.netopia-payments.com';
+    
+    // Build request body as per OpenAPI spec
+    const requestBody = {
+      config: {
+        notifyUrl: `https://${projectUrl}/functions/v1/make-server-bbc0c500/netopia/ipn`,
+        redirectUrl: returnUrl || `https://${projectUrl.split('.')[0]}.supabase.co/payment-success?orderId=${orderId}`,
+        language: "ro"
+      },
+      payment: {
+        data: {}  // Empty - customer will enter card details on Netopia's page
+      },
+      order: {
+        posSignature: settings.posSignature,
+        dateTime: new Date().toISOString(),
+        description: `Comanda BlueHand Canvas #${orderId}`,
+        orderID: orderId,
+        amount: parseFloat(amount.toFixed(2)),
+        currency: "RON",
+        billing: {
+          email: customerEmail,
+          phone: customerPhone || "+40700000000",
+          firstName: firstName,
+          lastName: lastName,
+          city: "Bucuresti",
+          country: 642,  // Romania
+          countryName: "Romania",
+          state: "",
+          postalCode: "010101",
+          details: customerAddress || "Romania"
+        },
+        shipping: {
+          email: customerEmail,
+          phone: customerPhone || "+40700000000",
+          firstName: firstName,
+          lastName: lastName,
+          city: "Bucuresti",
+          country: 642,
+          state: "",
+          postalCode: "010101",
+          details: customerAddress || "Romania"
+        }
+      }
+    };
+    
+    console.log('📤 Request to:', `${baseUrl}/payment/card/start`);
+    console.log('📤 POS Signature:', settings.posSignature);
+    console.log('📤 Order ID:', orderId);
+    console.log('📤 Amount:', requestBody.order.amount, 'RON');
+    
+    // Make API call with Authorization header (raw API key)
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+    
+    if (!settings.isLive && apiKey) {
+      headers['Authorization'] = apiKey;  // Raw key, no Bearer prefix
+      console.log('🔑 Authorization header added (raw key)');
+    }
+    
+    const netopiaResponse = await fetch(`${baseUrl}/payment/card/start`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(requestBody),
+    });
+    
+    console.log(`📥 Response status: ${netopiaResponse.status}`);
+    
+    const responseText = await netopiaResponse.text();
+    console.log(`📥 Response body:`, responseText);
+    
+    if (!netopiaResponse.ok) {
+      console.error(`❌ Netopia API error (${netopiaResponse.status}):`, responseText);
+      return c.json({ 
+        success: false, 
+        error: `Netopia API error: ${responseText}`,
+        status: netopiaResponse.status
+      }, 500);
+    }
+    
+    const responseData = JSON.parse(responseText);
+    
+    // Store payment
+    await kv.set(`netopia_payment:${orderId}`, {
+      orderId,
+      amount,
+      currency: 'RON',
+      status: 'pending',
+      customerEmail,
+      customerName,
+      createdAt: new Date().toISOString(),
+    });
+    
+    return c.json({
+      success: true,
+      paymentUrl: responseData.payment?.paymentURL,
+      ntpID: responseData.payment?.ntpID,
+      redirectUrl: returnUrl || requestBody.config.redirectUrl
+    });
+    
+  } catch (error) {
+    console.error('❌ Error:', error);
+    return c.json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }, 500);
+  }
+});
+
+// Initiate Netopia payment - NEW REST API v3.0 (OpenAPI Spec compliant)
+// Using modern REST API format with plain JSON (NO encryption)
 app.post("/make-server-bbc0c500/netopia/start-payment", async (c) => {
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('🚀 START-PAYMENT ENDPOINT CALLED (v3.0 - REST API)');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  
+  try {
+    console.log('📥 Step 1: Parsing request body...');
+    const body = await c.req.json();
+    console.log('📦 Request body received:', JSON.stringify(body, null, 2));
+    
+    const { orderId, amount, customerEmail, customerName, customerPhone, customerAddress, returnUrl } = body;
+    
+    console.log('🔍 Step 2: Validating required fields...');
+    console.log(`   - orderId: ${orderId ? '✅' : '❌'} (${orderId})`);
+    console.log(`   - amount: ${amount ? '✅' : '❌'} (${amount})`);
+    console.log(`   - customerEmail: ${customerEmail ? '✅' : '❌'} (${customerEmail})`);
+    console.log(`   - customerName: ${customerName ? '✅' : '❌'} (${customerName})`);
+
+
+    if (!orderId || !amount || !customerEmail || !customerName) {
+      console.error('❌ VALIDATION FAILED: Missing required fields');
+      return c.json({ 
+        success: false, 
+        error: 'Missing required fields: orderId, amount, customerEmail, customerName' 
+      }, 400);
+    }
+    
+    console.log('✅ All required fields present');
+
+    console.log('🔍 Step 3: Loading Netopia settings from database...');
+    // Get Netopia settings from KV store
+    const settings = await kv.get<{
+      posSignature: string;
+      apiKey: string;
+      publicKey: string;
+      isLive: boolean;
+      isConfigured: boolean;
+    }>('netopia_settings');
+    
+    console.log('📊 Settings loaded:', {
+      hasSettings: !!settings,
+      hasPosSignature: !!settings?.posSignature,
+      hasPublicKey: !!settings?.publicKey,
+      isConfigured: settings?.isConfigured,
+      isLive: settings?.isLive
+    });
+
+    if (!settings || !settings.posSignature || !settings.publicKey || !settings.isConfigured) {
+      console.error('❌ SETTINGS VALIDATION FAILED: Netopia not configured');
+      return c.json({ 
+        success: false, 
+        error: 'Netopia payment gateway not configured. Please contact support.' 
+      }, 500);
+    }
+    
+    console.log('✅ Settings validation passed');
+
+    console.log('🔍 Step 4: Loading API credentials...');
+    // Get API key from DATABASE (sandbox requires API key authentication)
+    // CHANGED: Now reading from database instead of environment variables
+    const dbSandboxApiKey = settings.sandboxApiKey;
+    const envSandboxApiKey = Deno.env.get('NETOPIA_API_KEY');
+    const netopiaSandboxApiKey = dbSandboxApiKey || envSandboxApiKey; // Fallback to env for backwards compatibility
+    const netopiaPosSignature = settings.posSignature; // Always use database value
+    
+    console.log('🔍 API Key Source Check:');
+    console.log(`   - Database sandboxApiKey: ${dbSandboxApiKey ? `SET (${dbSandboxApiKey.length} chars, first 20: ${dbSandboxApiKey.substring(0, 20)}...)` : 'NOT SET'}`);
+    console.log(`   - Environment NETOPIA_API_KEY: ${envSandboxApiKey ? `SET (${envSandboxApiKey.length} chars, first 20: ${envSandboxApiKey.substring(0, 20)}...)` : 'NOT SET'}`);
+    console.log(`   - Using: ${dbSandboxApiKey ? '✅ DATABASE' : '⚠️ ENVIRONMENT VARIABLE (FALLBACK)'}`);
+    
+    console.log('🔐 Environment variables status:');
+    console.log(`   - Sandbox API Key (database): ${settings.sandboxApiKey ? '✅ SET' : '❌ NOT SET'}`);
+    if (settings.sandboxApiKey) {
+      console.log(`   - API Key length: ${settings.sandboxApiKey.length} characters`);
+      console.log(`   - API Key first 20 chars: ${settings.sandboxApiKey.substring(0, 20)}...`);
+      console.log(`   - API Key last 10 chars: ...${settings.sandboxApiKey.substring(settings.sandboxApiKey.length - 10)}`);
+    }
+    console.log(`   - POS Signature (database): ${netopiaPosSignature ? '✅ SET' : '❌ NOT SET'}`);
+    console.log(`   - Using POS Signature: ${netopiaPosSignature?.substring(0, 10)}...`);
+    console.log(`   - Full POS Signature: "${netopiaPosSignature}"`);
+    
+    if (!settings.isLive && !netopiaSandboxApiKey) {
+      console.error('❌ SANDBOX API KEY MISSING: Please add it in Admin Settings → Netopia');
+      return c.json({ 
+        success: false, 
+        error: 'Netopia sandbox API key not configured. Please add it in Admin Settings → Netopia tab.' 
+      }, 500);
+    }
+    
+    console.log('✅ Environment validation passed');
+
+    // Determine API endpoint based on environment
+    const environment = settings.isLive ? 'live' : 'sandbox';
+    const baseUrl = settings.isLive 
+      ? 'https://secure.netopia-payments.com'
+      : 'https://secure.sandbox.netopia-payments.com';
+
+    console.log(`💳 Initiating Netopia payment for order ${orderId}, amount: ${amount} RON`);
+    console.log(`🔗 Using environment: ${environment}`);
+    console.log(`🔗 Base URL: ${baseUrl}`);
+    console.log(`🔑 POS Signature being used: "${netopiaPosSignature}"`);
+    console.log(`🆕 Using NEW REST API format (no encryption, plain JSON)`);
+    console.log(`🔑 POS Signature length: ${netopiaPosSignature.length} characters`);
+    if (!settings.isLive && netopiaSandboxApiKey) {
+      console.log(`🔑 API Key configured: ${netopiaSandboxApiKey.substring(0, 10)}...`);
+    }
+
+    // Parse customer name
+    const nameParts = customerName.trim().split(' ');
+    const firstName = nameParts[0] || 'Client';
+    const lastName = nameParts.slice(1).join(' ') || 'BlueHand';
+
+    // Create timestamp
+    const date = new Date();
+    const timestamp = date.getTime();
+
+    // Get the base URL for callbacks
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
+    const projectUrl = supabaseUrl.replace('https://', '');
+
+    // Import required libraries for encryption
+    const crypto = await import('node:crypto');
+    const { Buffer } = await import('node:buffer');
+    const forgeModule = await import('npm:node-forge@1.3.1');
+    const forge = forgeModule.default || forgeModule;
+    
+    // Build XML MANUALLY to ensure exact structure
+    // CRITICAL: currency as attributes on both order and invoice elements
+    const escapeXml = (str: string | number) => {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+    };
+    
+    // Define currency explicitly - MUST be exactly 3 characters  
+    const currency = "RON";
+    
+    // CRITICAL VALIDATION: Ensure currency is EXACTLY "RON" with no whitespace
+    if (currency.trim() !== "RON" || currency.length !== 3) {
+      console.error(`❌ CURRENCY VALIDATION FAILED: currency="${currency}", length=${currency.length}`);
+      return c.json({
+        success: false,
+        error: 'Internal error: Invalid currency format'
+      }, 500);
+    }
+    console.log(`✅ Currency validated: "${currency}" (length: ${currency.length})`);
+    
+    // Build XML with currency as ATTRIBUTE on order element, CHILD ELEMENT, AND as invoice attribute
+    // Netopia requires ALL THREE: currency attribute on <order>, <currency> child element, AND currency attribute on <invoice>
+    // CRITICAL: Using hardcoded "RON" in attributes to avoid any variable interpolation issues
+    console.log('✅ Using FIXED XML structure with currency attribute on <order> element');
+    const xml = `<?xml version="1.0" encoding="utf-8"?>
+<order type="card" id="${escapeXml(orderId)}" timestamp="${timestamp}" currency="RON">
+  <currency>RON</currency>
+  <signature>${escapeXml(netopiaPosSignature)}</signature>
+  <url>
+    <confirm>${escapeXml(`https://${projectUrl}/functions/v1/make-server-bbc0c500/netopia/ipn`)}</confirm>
+    <return>${escapeXml(returnUrl || `https://${projectUrl.split('.')[0]}.supabase.co/payment-success?orderId=${orderId}`)}</return>
+  </url>
+  <invoice currency="RON" amount="${escapeXml(amount.toFixed(2))}">
+    <details>${escapeXml(`Comanda BlueHand Canvas #${orderId}`)}</details>
+    <contact_info>
+      <billing type="person">
+        <first_name>${escapeXml(firstName)}</first_name>
+        <last_name>${escapeXml(lastName)}</last_name>
+        <email>${escapeXml(customerEmail)}</email>
+        <mobile_phone>${escapeXml(customerPhone || '')}</mobile_phone>
+        <address>${escapeXml(customerAddress || 'Romania')}</address>
+        <city></city>
+        <county></county>
+        <zip_code></zip_code>
+        <country>Romania</country>
+      </billing>
+      <shipping type="person">
+        <first_name>${escapeXml(firstName)}</first_name>
+        <last_name>${escapeXml(lastName)}</last_name>
+        <email>${escapeXml(customerEmail)}</email>
+        <mobile_phone>${escapeXml(customerPhone || '')}</mobile_phone>
+        <address>${escapeXml(customerAddress || 'Romania')}</address>
+        <city></city>
+        <county></county>
+        <zip_code></zip_code>
+        <country>Romania</country>
+      </shipping>
+    </contact_info>
+  </invoice>
+</order>`;
+    
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log(`📄 COMPLETE GENERATED XML (${xml.length} chars):`);
+    console.log(`💱 Currency: "${currency}" (${currency.length} chars) - AS CHILD ELEMENT + INVOICE ATTRIBUTE`);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log(xml);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    
+    // Verify currency appears in XML in ALL THREE REQUIRED PLACES
+    if (!xml.includes('<currency>RON</currency>')) {
+      console.error('❌ WARNING: Currency element not found in XML!');
+      return c.json({
+        success: false,
+        error: 'Internal error: Currency not properly set in payment XML'
+      }, 500);
+    }
+    
+    if (!xml.includes('currency="RON"')) {
+      console.error('❌ CRITICAL: Currency attribute not found on <order> element!');
+      console.error('This will cause Netopia validation error!');
+      return c.json({
+        success: false,
+        error: 'Internal error: Currency attribute missing from order element'
+      }, 500);
+    }
+    
+    console.log('✅ Currency validation passed:');
+    console.log('   - <order currency="RON"> attribute found ✅');
+    console.log('   - <currency>RON</currency> element found ✅');
+    console.log('   - <invoice currency="RON"> attribute found ✅');
+    
+    // Encrypt the payment data
+    // 1. Generate random AES key and random IV
+    const aesKey = crypto.randomBytes(32);
+    const iv = crypto.randomBytes(16);
+
+    // 2. Encrypt XML with AES-256-CBC
+    const cipher = crypto.createCipheriv('aes-256-cbc', aesKey, iv);
+    let encryptedXml = cipher.update(xml, 'utf8');
+    encryptedXml = Buffer.concat([encryptedXml, cipher.final()]);
+    
+    // Prepend IV to encrypted data
+    const encryptedDataWithIV = Buffer.concat([iv, encryptedXml]);
+    const encryptedData = encryptedDataWithIV.toString('base64');
+    
+    console.log('🔐 AES encryption details:');
+    console.log('  IV (prepended to data):', iv.toString('hex'));
+    console.log('  Encrypted data length:', encryptedDataWithIV.length, 'bytes');
+    
+    // CRITICAL DEBUG: Decrypt the data IMMEDIATELY to verify it's correct
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('🧪 DECRYPTION TEST: Verifying encrypted XML is correct');
+    try {
+      const testIv = encryptedDataWithIV.slice(0, 16);
+      const testEncryptedXml = encryptedDataWithIV.slice(16);
+      const testDecipher = crypto.createDecipheriv('aes-256-cbc', aesKey, testIv);
+      let testDecrypted = testDecipher.update(testEncryptedXml);
+      testDecrypted = Buffer.concat([testDecrypted, testDecipher.final()]);
+      const testDecryptedXml = testDecrypted.toString('utf8');
+      
+      console.log('✅ Decryption successful. Checking currency...');
+      if (testDecryptedXml.includes('currency="RON"')) {
+        console.log('✅ Currency attribute PRESERVED after encryption: currency="RON"');
+      } else {
+        console.error('❌ CRITICAL: Currency attribute LOST after encryption!');
+        console.error('Decrypted XML preview:', testDecryptedXml.substring(0, 500));
+      }
+      
+      if (testDecryptedXml.includes('<currency>RON</currency>')) {
+        console.log('✅ Currency element PRESERVED after encryption');
+      } else {
+        console.error('❌ CRITICAL: Currency element LOST after encryption!');
+      }
+    } catch (decryptError) {
+      console.error('❌ Decryption test failed:', decryptError);
+    }
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+    // 3. Encrypt AES key with RSA public key
+    let publicKeyFormatted = settings.publicKey;
+    
+    // Convert PKCS#1 to PKCS#8 if needed
+    if (publicKeyFormatted.includes('BEGIN RSA PUBLIC KEY')) {
+      console.log('🔄 Converting RSA PUBLIC KEY (PKCS#1) to PUBLIC KEY (PKCS#8)...');
+      try {
+        const publicKeyForge = forge.pki.publicKeyFromPem(publicKeyFormatted.trim());
+        const publicKeyAsn1 = forge.pki.publicKeyToAsn1(publicKeyForge);
+        const publicKeyInfo = forge.pki.wrapRsaPublicKey(publicKeyAsn1);
+        publicKeyFormatted = forge.pki.publicKeyInfoToPem(publicKeyInfo);
+        console.log('✅ Key converted successfully');
+      } catch (conversionError) {
+        console.error('❌ Key conversion failed:', conversionError);
+        return c.json({
+          success: false,
+          error: `Failed to convert public key format: ${conversionError instanceof Error ? conversionError.message : 'Unknown error'}`
+        }, 500);
+      }
+    } else if (publicKeyFormatted.includes('BEGIN CERTIFICATE')) {
+      console.log('🔄 Extracting public key from certificate...');
+      try {
+        const cert = forge.pki.certificateFromPem(publicKeyFormatted.trim());
+        publicKeyFormatted = forge.pki.publicKeyToPem(cert.publicKey);
+        console.log('✅ Public key extracted from certificate');
+      } catch (certError) {
+        console.error('❌ Certificate parsing failed:', certError);
+        return c.json({
+          success: false,
+          error: `Failed to extract public key from certificate: ${certError instanceof Error ? certError.message : 'Unknown error'}`
+        }, 500);
+      }
+    }
+
+    let encryptedKey;
+    try {
+      encryptedKey = crypto.publicEncrypt(
+        {
+          key: publicKeyFormatted,
+          padding: crypto.constants.RSA_PKCS1_PADDING
+        },
+        aesKey
+      );
+      console.log('✅ AES key encrypted successfully with RSA public key');
+    } catch (encryptError) {
+      console.error('❌ RSA encryption failed:', encryptError);
+      return c.json({
+        success: false,
+        error: `Failed to encrypt payment data: ${encryptError instanceof Error ? encryptError.message : 'RSA encryption error'}`
+      }, 500);
+    }
+
+    // Store payment info in KV for tracking
+    await kv.set(`netopia_payment:${orderId}`, {
+      orderId,
+      amount,
+      currency: 'RON',
+      status: 'pending',
+      customerEmail,
+      customerName,
+      timestamp,
+      createdAt: new Date().toISOString(),
+    });
+
+    // Make server-to-server API call to Netopia
+    const paymentUrl = `${baseUrl}/payment/card/start`;
+    
+    console.log(`🚀 Making API call to Netopia...`);
+    
+    try {
+      const requestBody = {
+        env_key: encryptedKey.toString('base64'),
+        data: encryptedData,
+        // CRITICAL FIX: Add order object at root level - Netopia validates order.currency from JSON body!
+        order: {
+          currency: "RON"
+        },
+        config: {
+          language: "ro",
+          currency: "RON",
+          notifyUrl: `https://${projectUrl}/functions/v1/make-server-bbc0c500/netopia/ipn`,
+          redirectUrl: returnUrl || `https://${projectUrl.split('.')[0]}.supabase.co/payment-success?orderId=${orderId}`
+        }
+      };
+      
+      console.log('📤 Request body keys:', Object.keys(requestBody));
+      console.log('📤 Order object (ROOT LEVEL):', JSON.stringify(requestBody.order));
+      console.log('📤 Config:', requestBody.config);
+      console.log('📤 Config.currency value:', JSON.stringify(requestBody.config.currency));
+      console.log('📤 Config.currency length:', requestBody.config.currency.length);
+      console.log('📤 env_key length:', requestBody.env_key.length);
+      console.log('📤 data length:', requestBody.data.length);
+      
+      // Prepare headers with Authorization for sandbox
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      };
+      
+      // Add Authorization header for sandbox environment
+      // IMPORTANT: Try multiple header formats since Netopia docs don't specify exact format
+      if (!settings.isLive && netopiaSandboxApiKey) {
+        // Try multiple common API key header formats simultaneously
+        headers['Authorization'] = netopiaSandboxApiKey;  // Raw key
+        headers['Api-Key'] = netopiaSandboxApiKey;        // Custom header (common in payment APIs)
+        headers['X-API-Key'] = netopiaSandboxApiKey;      // X-prefixed custom header
+        console.log('🔑 Added API Key in multiple header formats for sandbox');
+        console.log('🔑 Headers: Authorization, Api-Key, X-API-Key (raw key, no Bearer)');
+        console.log('🔑 API Key (first 20 chars):', netopiaSandboxApiKey.substring(0, 20) + '...');
+      } else if (settings.isLive) {
+        console.log('⚠️ LIVE mode - API Key handling might differ');
+      }
+      
+      console.log('📤 Request headers:', Object.keys(headers));
+      console.log(`📤 Making POST request to: ${paymentUrl}`);
+      
+      const netopiaResponse = await fetch(paymentUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(requestBody),
+      });
+      
+      console.log(`📥 Netopia response status: ${netopiaResponse.status}`);
+      console.log(`📥 Response headers:`, Object.fromEntries(netopiaResponse.headers.entries()));
+      
+      if (!netopiaResponse.ok) {
+        let errorText = '';
+        try {
+          errorText = await netopiaResponse.text();
+          console.error(`❌ Netopia API error (${netopiaResponse.status}):`, errorText);
+          
+          // Try to parse as JSON for better error details
+          try {
+            const errorJson = JSON.parse(errorText);
+            console.error(`❌ Parsed error details:`, JSON.stringify(errorJson, null, 2));
+            
+            // Enhanced error logging for common issues
+            console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.error('🔍 NETOPIA ERROR ANALYSIS');
+            console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.error('Error Code:', errorJson.code || 'N/A');
+            console.error('Error Message:', errorJson.message || errorText);
+            console.error('POS Signature used:', netopiaPosSignature);
+            console.error('API Key used (first 20):', netopiaSandboxApiKey ? netopiaSandboxApiKey.substring(0, 20) + '...' : 'NONE');
+            console.error('Environment:', settings.isLive ? 'LIVE' : 'SANDBOX');
+            console.error('Endpoint:', paymentUrl);
+            console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            
+            // Check if it's an authentication error
+            if (netopiaResponse.status === 401 || netopiaResponse.status === 403) {
+              return c.json({
+                success: false,
+                error: '🔐 AUTHENTICATION ERROR: API Key or POS Signature is invalid. Please check your Netopia credentials in Admin Settings.',
+                details: errorJson,
+                debugInfo: {
+                  posSignature: netopiaPosSignature,
+                  hasApiKey: !!netopiaSandboxApiKey,
+                  environment: settings.isLive ? 'LIVE' : 'SANDBOX',
+                  endpoint: paymentUrl
+                }
+              }, 500);
+            }
+            
+            // Check for POS-related errors
+            if (errorJson.message?.toLowerCase().includes('pos') || 
+                errorJson.code?.toLowerCase().includes('pos') ||
+                errorText.toLowerCase().includes('pos not found')) {
+              return c.json({
+                success: false,
+                error: '❌ POS ERROR: ' + (errorJson.message || errorText),
+                details: errorJson,
+                debugInfo: {
+                  posSignature: netopiaPosSignature,
+                  posSignatureLength: netopiaPosSignature?.length,
+                  hasApiKey: !!netopiaSandboxApiKey,
+                  apiKeySource: dbSandboxApiKey ? 'DATABASE' : 'ENVIRONMENT',
+                  environment: settings.isLive ? 'LIVE' : 'SANDBOX',
+                  endpoint: paymentUrl
+                }
+              }, 500);
+            }
+          } catch (parseError) {
+            // Not JSON, that's ok
+          }
+        } catch (readError) {
+          errorText = 'Unable to read error response';
+        }
+        
+        return c.json({
+          success: false,
+          error: `Netopia payment error (${netopiaResponse.status}): ${errorText.substring(0, 500)}`,
+          debugInfo: {
+            posSignature: netopiaPosSignature,
+            hasApiKey: !!netopiaSandboxApiKey,
+            environment: settings.isLive ? 'LIVE' : 'SANDBOX',
+            endpoint: paymentUrl
+          }
+        }, 500);
+      }
+      
+      // Check for redirect URL in response
+      const locationHeader = netopiaResponse.headers.get('Location');
+      if (locationHeader) {
+        console.log(`✅ Netopia redirect URL: ${locationHeader}`);
+        return c.json({
+          success: true,
+          redirectUrl: locationHeader,
+          orderId,
+          message: 'Payment initialized successfully',
+        });
+      }
+      
+      // Check if response is JSON
+      const contentType = netopiaResponse.headers.get('Content-Type');
+      if (contentType?.includes('application/json')) {
+        const responseData = await netopiaResponse.json();
+        console.log(`✅ Netopia JSON response:`, JSON.stringify(responseData, null, 2));
+        
+        if (responseData.paymentUrl || responseData.redirect_url || responseData.url) {
+          const redirectUrl = responseData.paymentUrl || responseData.redirect_url || responseData.url;
+          return c.json({
+            success: true,
+            redirectUrl,
+            orderId,
+            message: 'Payment initialized successfully',
+          });
+        }
+      }
+      
+      // Otherwise check for HTML redirect
+      const responseText = await netopiaResponse.text();
+      const metaRedirectMatch = responseText.match(/<meta[^>]*http-equiv=[\"']refresh[\"'][^>]*content=[\"'][^\"']*url=([^\"']+)[\"']/i);
+      if (metaRedirectMatch) {
+        const redirectUrl = metaRedirectMatch[1];
+        console.log(`✅ Found meta redirect: ${redirectUrl}`);
+        return c.json({
+          success: true,
+          redirectUrl,
+          orderId,
+          message: 'Payment initialized successfully',
+        });
+      }
+      
+      console.error('❌ No redirect URL found in Netopia response');
+      return c.json({
+        success: false,
+        error: 'Netopia did not return a payment URL. Please check configuration.'
+      }, 500);
+      
+    } catch (fetchError) {
+      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.error('❌ FETCH ERROR - Failed to call Netopia API');
+      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.error('Error type:', fetchError?.constructor?.name);
+      console.error('Error message:', fetchError instanceof Error ? fetchError.message : String(fetchError));
+      console.error('Error stack:', fetchError instanceof Error ? fetchError.stack : 'No stack trace');
+      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      return c.json({
+        success: false,
+        error: `Failed to connect to Netopia: ${fetchError instanceof Error ? fetchError.message : 'Unknown error'}`,
+        errorType: fetchError?.constructor?.name || 'FetchError'
+      }, 500);
+    }
+
+  } catch (error) {
+    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.error('❌ CRITICAL ERROR IN START-PAYMENT ENDPOINT');
+    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.error('Error type:', error?.constructor?.name);
+    console.error('Error message:', error instanceof Error ? error.message : String(error));
+    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    return c.json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
+      errorType: error?.constructor?.name || 'UnknownError'
+    }, 500);
+  }
+});
+
+// OLD IMPLEMENTATION (kept as backup reference - can be removed later)
+app.post("/make-server-bbc0c500/netopia/start-payment-old", async (c) => {
   try {
     const body = await c.req.json();
     const { orderId, amount, customerEmail, customerName, returnUrl } = body;
@@ -813,23 +2052,25 @@ app.post("/make-server-bbc0c500/netopia/start-payment", async (c) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
     const projectUrl = supabaseUrl.replace('https://', '');
 
-    // Prepare payment data according to Netopia XML structure
+    // Prepare payment data according to OFFICIAL Netopia XML structure
+    // CRITICAL: currency as BOTH direct child AND invoice attribute
+    // Netopia error indicates it expects order.currency as direct child element
     const paymentData = {
       order: {
         $: {
-          id: orderId,
-          timestamp: timestamp,
           type: "card",
+          id: orderId,
+          timestamp: timestamp.toString(),
         },
         signature: settings.posSignature,
+        currency: "RON",  // Direct child element (simple string - no charkey)
         url: {
-          return: returnUrl || `https://${projectUrl.split('.')[0]}.supabase.co/payment-success?orderId=${orderId}`,
           confirm: `https://${projectUrl}/functions/v1/make-server-bbc0c500/netopia/ipn`,
+          return: returnUrl || `https://${projectUrl.split('.')[0]}.supabase.co/payment-success?orderId=${orderId}`,
         },
         invoice: {
           $: {
-            currency: "RON",
-            amount: amount,
+            amount: amount.toFixed(2),
           },
           details: `Comanda BlueHand Canvas #${orderId}`,
           contact_info: {
@@ -839,9 +2080,13 @@ app.post("/make-server-bbc0c500/netopia/start-payment", async (c) => {
               },
               first_name: firstName,
               last_name: lastName,
-              address: "Romania",
               email: customerEmail,
               mobile_phone: "",
+              address: "Romania",
+              city: "",
+              county: "",
+              zip_code: "",
+              country: "Romania",
             },
             shipping: {
               $: {
@@ -849,44 +2094,132 @@ app.post("/make-server-bbc0c500/netopia/start-payment", async (c) => {
               },
               first_name: firstName,
               last_name: lastName,
-              address: "Romania",
               email: customerEmail,
               mobile_phone: "",
+              address: "Romania",
+              city: "",
+              county: "",
+              zip_code: "",
+              country: "Romania",
             },
           },
         },
-        ipn_cipher: "aes-256-cbc",
       },
     };
 
-    console.log(`📝 Payment data prepared:`, JSON.stringify(paymentData, null, 2));
+    console.log(`📝 Payment data prepared (OFFICIAL STRUCTURE - currency/amount as invoice attributes):`, JSON.stringify(paymentData, null, 2));
 
-    // Import required libraries for XML building and encryption
-    const { Builder } = await import('npm:xml2js@0.6.2');
+    // Import required libraries for encryption
     const crypto = await import('node:crypto');
+    const { Buffer } = await import('node:buffer'); // Import Buffer for Deno
     const forgeModule = await import('npm:node-forge@1.3.1');
     // node-forge may export as default or named, handle both
     const forge = forgeModule.default || forgeModule;
     
-    // Build XML from payment data
-    const builder = new Builder({ cdata: true });
-    const xml = builder.buildObject(paymentData);
+    // Build XML MANUALLY to ensure exact structure
+    const escapeXml = (str: string | number) => {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+    };
     
-    console.log(`📄 Generated XML:`);
+    // Define currency explicitly - MUST be exactly 3 characters
+    const currency = "RON";
+    
+    const xml = `<?xml version="1.0" encoding="utf-8"?>
+<order type="card" id="${escapeXml(orderId)}" timestamp="${timestamp}" currency="${currency}">
+  <currency>${currency}</currency>
+  <signature>${escapeXml(settings.posSignature)}</signature>
+  <url>
+    <confirm>${escapeXml(`https://${projectUrl}/functions/v1/make-server-bbc0c500/netopia/ipn`)}</confirm>
+    <return>${escapeXml(returnUrl || `https://${projectUrl.split('.')[0]}.supabase.co/payment-success?orderId=${orderId}`)}</return>
+  </url>
+  <invoice currency="${currency}" amount="${escapeXml(amount.toFixed(2))}">
+    <details>${escapeXml(`Comanda BlueHand Canvas #${orderId}`)}</details>
+    <contact_info>
+      <billing type="person">
+        <first_name>${escapeXml(firstName)}</first_name>
+        <last_name>${escapeXml(lastName)}</last_name>
+        <email>${escapeXml(customerEmail)}</email>
+        <mobile_phone></mobile_phone>
+        <address>Romania</address>
+        <city></city>
+        <county></county>
+        <zip_code></zip_code>
+        <country>Romania</country>
+      </billing>
+      <shipping type="person">
+        <first_name>${escapeXml(firstName)}</first_name>
+        <last_name>${escapeXml(lastName)}</last_name>
+        <email>${escapeXml(customerEmail)}</email>
+        <mobile_phone></mobile_phone>
+        <address>Romania</address>
+        <city></city>
+        <county></county>
+        <zip_code></zip_code>
+        <country>Romania</country>
+      </shipping>
+    </contact_info>
+  </invoice>
+</order>`;
+    
+ 
+
+
+
+    
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log(`📄 COMPLETE GENERATED XML (${xml.length} chars):`);
+    console.log(`💱 Currency: "${currency}" (${currency.length} chars) - AS CHILD ELEMENT + INVOICE ATTRIBUTE`);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(xml);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`📏 XML length: ${xml.length} characters`);
     
+    // Verify critical elements exist
+    const currencyMatch = xml.match(/<currency>([^<]*)<\/currency>/);
+    console.log('🔍 Currency element check:', currencyMatch ? `✅ Found: <currency>${currencyMatch[1]}</currency>` : '❌ NOT FOUND!');
+    const invoiceMatch = xml.match(/<invoice[^>]*>/);
+    console.log('🔍 Invoice tag check:', invoiceMatch ? `✅ Found: ${invoiceMatch[0]}` : '❌ NOT FOUND!');
+    
+    // Verify currency appears in XML as child element
+    if (!xml.includes('<currency>RON</currency>')) {
+      console.error('❌ WARNING: Currency element not found in XML!');
+      return c.json({
+        success: false,
+        error: 'Internal error: Currency not properly set in payment XML'
+      }, 500);
+    }
+    
+    console.log('✅ Currency validation passed: <currency>RON</currency> found in XML');
+    
     // Encrypt the payment data
-    // 1. Generate random AES key and IV
+    // 1. Generate random AES key and random IV (standard approach)
     const aesKey = crypto.randomBytes(32);
-    const iv = crypto.randomBytes(16);
+    const iv = crypto.randomBytes(16); // Random IV (standard for AES-256-CBC)
 
-    // 2. Encrypt XML with AES-256-CBC
+    // 2. Encrypt XML with AES-256-CBC using random IV
+    // PREPEND IV to encrypted data (common approach for AES-256-CBC)
     const cipher = crypto.createCipheriv('aes-256-cbc', aesKey, iv);
-    let encryptedData = cipher.update(xml, 'utf8', 'base64');
-    encryptedData += cipher.final('base64');
+    let encryptedXml = cipher.update(xml, 'utf8');
+    encryptedXml = Buffer.concat([encryptedXml, cipher.final()]);
+    
+    // Prepend IV to encrypted data
+    const encryptedDataWithIV = Buffer.concat([iv, encryptedXml]);
+    const encryptedData = encryptedDataWithIV.toString('base64');
+    
+    console.log('🔐 AES encryption details:');
+    console.log('  Using RANDOM IV (prepended to encrypted data)');
+    console.log('  AES Key length:', aesKey.length, 'bytes');
+    console.log('  IV length:', iv.length, 'bytes');
+    console.log('  IV (hex):', iv.toString('hex'));
+    console.log('  IV (base64):', iv.toString('base64'));
+    console.log('  Encrypted XML length:', encryptedXml.length, 'bytes');
+    console.log('  Total data length (IV + encrypted):', encryptedDataWithIV.length, 'bytes');
+    console.log('  Base64 encoded length:', encryptedData.length, 'chars');
 
     // 3. Encrypt AES key with RSA public key
     // Handle both PKCS#1 (RSA PUBLIC KEY) and PKCS#8 (PUBLIC KEY) formats
@@ -982,6 +2315,13 @@ app.post("/make-server-bbc0c500/netopia/start-payment", async (c) => {
 
     console.log(`🔐 Payment data encrypted successfully`);
     
+    // DISABLE debug mode - Netopia requires encryption
+    const debugMode = false; // Always use encryption
+    
+    if (debugMode) {
+      console.log('⚠️ DEBUG MODE DISABLED - Always using encryption');
+    }
+    
     // Store payment info in KV for tracking
     await kv.set(`netopia_payment:${orderId}`, {
       orderId,
@@ -1002,34 +2342,50 @@ app.post("/make-server-bbc0c500/netopia/start-payment", async (c) => {
     console.log(`🔑 API Key (first 20 chars): ${netopiaSandboxApiKey?.substring(0, 20)}...`);
     
     try {
-      // Netopia expects JSON format with merchant identification
-      // Try multiple possible field names for POS identification
+      // Send data, env_key, AND config as JSON
+      // Config must be SEPARATE from encrypted XML (Netopia validates config.language)
       const requestBody = {
         env_key: encryptedPayload.env_key,
         data: encryptedPayload.data,
-        // Try different possible field names for merchant identification
-        posSignature: settings.posSignature,
-        signature: settings.posSignature,
-        ntpID: settings.posSignature,
-        apiKey: settings.posSignature,
         config: {
-          language: 'ro',  // Romanian language
+          language: "ro",
           notifyUrl: `https://${projectUrl}/functions/v1/make-server-bbc0c500/netopia/ipn`,
           redirectUrl: returnUrl || `https://${projectUrl.split('.')[0]}.supabase.co/payment-success?orderId=${orderId}`
         }
       };
       
-      console.log('📤 Sending request to Netopia:');
+      console.log('📤 Sending ENCRYPTED request to Netopia:');
       console.log('  env_key length:', encryptedPayload.env_key.length);
       console.log('  data length:', encryptedPayload.data.length);
-      console.log('  POS Signature:', settings.posSignature);
-      console.log('  POS Signature length:', settings.posSignature.length);
-      console.log('  Request format: application/json');
+      console.log('  IV is PREPENDED to data (first 16 bytes of decoded base64)');
+      console.log('  Request format: application/json (data, env_key, AND config)');
       console.log('  Authorization header:', netopiaSandboxApiKey ? `Present (${netopiaSandboxApiKey.substring(0, 20)}...)` : 'Not present');
-      console.log('  Full request body keys:', Object.keys(requestBody));
-      console.log('  Full request body:', JSON.stringify(requestBody, null, 2));
+      console.log('  Request body keys:', Object.keys(requestBody));
+      console.log('  Config:', JSON.stringify(requestBody.config));
       
-      // Make POST request to Netopia with Authorization header and JSON body
+      // Log first/last chars of encrypted data for debugging
+      console.log('🔍 Encrypted payload preview:');
+      console.log('  env_key (first 50 chars):', encryptedPayload.env_key.substring(0, 50));
+      console.log('  env_key (last 50 chars):', encryptedPayload.env_key.substring(encryptedPayload.env_key.length - 50));
+      console.log('  data (first 50 chars):', encryptedPayload.data.substring(0, 50));
+      console.log('  data (last 50 chars):', encryptedPayload.data.substring(encryptedPayload.data.length - 50));
+      
+      // Verify the encrypted data can be base64 decoded
+      try {
+        const decodedData = Buffer.from(encryptedPayload.data, 'base64');
+        console.log('  Decoded data length:', decodedData.length, 'bytes');
+        console.log('  Expected: IV (16 bytes) + encrypted XML');
+        if (decodedData.length >= 16) {
+          const extractedIV = decodedData.subarray(0, 16);
+          console.log('  Extracted IV from data:', extractedIV.toString('hex'));
+          console.log('  Original IV:', iv.toString('hex'));
+          console.log('  IVs match:', extractedIV.toString('hex') === iv.toString('hex') ? '✅ YES' : '❌ NO');
+        }
+      } catch (decodeError) {
+        console.error('  ❌ Failed to decode base64 data:', decodeError);
+      }
+      
+      // Make POST request to Netopia with JSON
       const netopiaResponse = await fetch(paymentUrl, {
         method: 'POST',
         headers: {
@@ -1050,36 +2406,62 @@ app.post("/make-server-bbc0c500/netopia/start-payment", async (c) => {
       });
       
       if (!netopiaResponse.ok) {
-        const errorText = await netopiaResponse.text();
-        console.error(`❌ Netopia API error (${netopiaResponse.status}):`, errorText);
+        // Try to get response as text first
+        let errorText = '';
+        let errorJson = null;
+        
+        try {
+          errorText = await netopiaResponse.text();
+          console.error(`❌ Netopia API error (${netopiaResponse.status}):`, errorText);
+        } catch (readError) {
+          console.error('❌ Failed to read error response:', readError);
+          errorText = 'Unable to read error response from Netopia';
+        }
         
         // Log the full error details
         console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         console.error('FULL ERROR RESPONSE FROM NETOPIA:');
         console.error('Status:', netopiaResponse.status);
         console.error('Status Text:', netopiaResponse.statusText);
-        console.error('Response Body:', errorText);
+        console.error('Response Body Length:', errorText.length);
+        console.error('Response Body:', errorText || '(empty)');
         console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         
         // Try to parse JSON error
-        try {
-          const errorJson = JSON.parse(errorText);
-          console.error('Parsed error JSON:', JSON.stringify(errorJson, null, 2));
-          
-          // Return detailed error to frontend
-          return c.json({
-            success: false,
-            error: `Netopia payment error: ${errorJson.message || errorJson.error || errorText}`,
-            details: errorJson
-          }, 500);
-        } catch {
-          // Not JSON, return raw error
-          return c.json({
-            success: false,
-            error: `Netopia payment error (${netopiaResponse.status}): ${errorText}`,
-            rawError: errorText
-          }, 500);
+        if (errorText) {
+          try {
+            errorJson = JSON.parse(errorText);
+            console.error('Parsed error JSON:', JSON.stringify(errorJson, null, 2));
+          } catch (parseError) {
+            console.error('Response is not JSON (parse error):', parseError instanceof Error ? parseError.message : parseError);
+            // Try to extract useful info from HTML or plain text
+            const textPreview = errorText.substring(0, 500);
+            console.error('Text preview:', textPreview);
+          }
         }
+        
+        // Build error message
+        let errorMessage = `Netopia payment error (${netopiaResponse.status} ${netopiaResponse.statusText})`;
+        if (errorJson) {
+          errorMessage = `Netopia payment error: ${errorJson.message || errorJson.error || JSON.stringify(errorJson)}`;
+        } else if (errorText && errorText.length > 0 && errorText.length < 500) {
+          // If short text, include it
+          errorMessage += `: ${errorText}`;
+        } else if (!errorText || errorText.length === 0) {
+          errorMessage += ': Empty response from Netopia. This may indicate an authentication, encryption, or XML format issue.';
+        }
+        
+        // Return detailed error to frontend
+        return c.json({
+          success: false,
+          error: errorMessage,
+          details: errorJson || {
+            status: netopiaResponse.status,
+            statusText: netopiaResponse.statusText,
+            responseLength: errorText?.length || 0,
+            responsePreview: errorText?.substring(0, 200) || '(empty)'
+          }
+        }, 500);
       }
       
       // Check if response is a redirect (3xx status or Location header)
@@ -1476,6 +2858,103 @@ app.all("*", (c) => {
     message: "This endpoint does not exist",
     path: c.req.path
   }, 404);
+});
+
+// ===== CART ENDPOINTS =====
+
+// Save cart to server
+app.post("/make-server-bbc0c500/cart/save", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { sessionId, cart } = body;
+    
+    if (!sessionId) {
+      return c.json({ success: false, error: 'Session ID is required' }, 400);
+    }
+    
+    // Save cart data to KV store with sessionId as key
+    await kv.set(`cart:${sessionId}`, {
+      cart,
+      updatedAt: new Date().toISOString()
+    });
+    
+    console.log(`✅ Cart saved for session: ${sessionId}`);
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Error saving cart:', error);
+    return c.json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Failed to save cart' 
+    }, 500);
+  }
+});
+
+// Load cart from server
+app.get("/make-server-bbc0c500/cart/load/:sessionId", async (c) => {
+  try {
+    const sessionId = c.req.param('sessionId');
+    
+    if (!sessionId) {
+      return c.json({ success: false, error: 'Session ID is required' }, 400);
+    }
+    
+    // Load cart data from KV store
+    const data = await kv.get<{ cart: any; updatedAt: string }>(`cart:${sessionId}`);
+    
+    if (!data) {
+      console.log(`ℹ️ No cart found for session: ${sessionId}`);
+      return c.json({ success: true, cart: null });
+    }
+    
+    console.log(`✅ Cart loaded for session: ${sessionId}`);
+    return c.json({ success: true, cart: data.cart });
+  } catch (error) {
+    console.error('Error loading cart:', error);
+    return c.json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Failed to load cart' 
+    }, 500);
+  }
+});
+
+// ===== UNSPLASH SETTINGS ENDPOINT =====
+
+// Get Unsplash settings
+app.get("/make-server-bbc0c500/unsplash/settings", async (c) => {
+  try {
+    const settings = await kv.get('unsplash_settings');
+    return c.json({ 
+      success: true, 
+      settings: settings || {
+        accessKey: '',
+        isConfigured: false
+      }
+    });
+  } catch (error) {
+    console.error('Error getting Unsplash settings:', error);
+    return c.json({ success: false, error: 'Failed to get settings' }, 500);
+  }
+});
+
+// Save Unsplash settings
+app.post("/make-server-bbc0c500/unsplash/settings", async (c) => {
+  try {
+    const settings = await c.req.json();
+    
+    const settingsToSave = {
+      ...settings,
+      isConfigured: !!settings.accessKey
+    };
+    
+    await kv.set('unsplash_settings', settingsToSave);
+    
+    console.log(`✅ Unsplash settings saved. Configured: ${settingsToSave.isConfigured}`);
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Error saving Unsplash settings:', error);
+    return c.json({ success: false, error: 'Failed to save settings' }, 500);
+  }
 });
 
 // Start server

@@ -43,6 +43,9 @@ const SitemapPage = lazy(() => import('./pages/SitemapPage').then(m => ({ defaul
 const TermsPage = lazy(() => import('./pages/TermsPage').then(m => ({ default: m.TermsPage })));
 const GDPRPage = lazy(() => import('./pages/GDPRPage').then(m => ({ default: m.GDPRPage })));
 const PaymentSuccessPage = lazy(() => import('./pages/PaymentSuccessPage').then(m => ({ default: m.PaymentSuccessPage })));
+const NetopiaTestPage = lazy(() => import('./pages/NetopiaTestPage'));
+const NetopiaApiKeyCheck = lazy(() => import('./pages/NetopiaApiKeyCheck'));
+const NetopiaDebugPage = lazy(() => import('./pages/NetopiaDebugPage'));
 
 // Lazy load admin pages
 const AdminDashboardPage = lazy(() => import('./pages/admin/AdminDashboardPage').then(m => ({ default: m.AdminDashboardPage })));
@@ -187,6 +190,9 @@ function App() {
                     <Route path="/gdpr" element={<Suspense fallback={<PageLoader />}><GDPRPage /></Suspense>} />
                     <Route path="/politica-confidentialitate" element={<Suspense fallback={<PageLoader />}><GDPRPage /></Suspense>} />
                     <Route path="/payment-success" element={<Suspense fallback={<PageLoader />}><PaymentSuccessPage /></Suspense>} />
+                    <Route path="/netopia-test" element={<Suspense fallback={<PageLoader />}><NetopiaTestPage /></Suspense>} />
+                    <Route path="/netopia-api-check" element={<Suspense fallback={<PageLoader />}><NetopiaApiKeyCheck /></Suspense>} />
+                    <Route path="/netopia-debug" element={<Suspense fallback={<PageLoader />}><NetopiaDebugPage /></Suspense>} />
                   </Routes>
                 </main>
                 <Footer />
