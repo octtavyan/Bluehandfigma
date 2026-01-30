@@ -71,6 +71,7 @@ export interface Order {
   companyCounty?: string;
   companyCity?: string;
   companyAddress?: string;
+  invoiceUrl?: string; // Cloudinary URL for generated invoice PDF
 }
 
 export interface Client {
@@ -606,7 +607,8 @@ export const ordersService = {
       regCom: data.reg_com,
       companyCounty: data.company_county,
       companyCity: data.company_city,
-      companyAddress: data.company_address
+      companyAddress: data.company_address,
+      invoiceUrl: data.invoice_url
     } : null;
   },
 
@@ -667,6 +669,7 @@ export const ordersService = {
     if (updates.status !== undefined) dbUpdates.status = updates.status;
     if (updates.notes !== undefined) dbUpdates.notes = updates.notes;
     if (updates.paymentStatus !== undefined) dbUpdates.payment_status = updates.paymentStatus;
+    if (updates.invoiceUrl !== undefined) dbUpdates.invoice_url = updates.invoiceUrl;
 
     const { error } = await supabase
       .from('orders')
@@ -712,8 +715,25 @@ export const ordersService = {
       regCom: o.reg_com,
       companyCounty: o.company_county,
       companyCity: o.company_city,
-      companyAddress: o.company_address
+      companyAddress: o.company_address,
+      invoiceUrl: o.invoice_url
     };
+  },
+
+  // Update invoice URL for an order
+  async updateInvoiceUrl(id: string, invoiceUrl: string): Promise<boolean> {
+    const { error } = await supabase
+      .from('orders')
+      .update({ invoice_url: invoiceUrl })
+      .eq('id', id);
+
+    if (error) {
+      console.error('❌ Error updating invoice URL:', error);
+      return false;
+    }
+    
+    console.log('✅ Invoice URL saved to database:', invoiceUrl);
+    return true;
   }
 };
 
@@ -878,6 +898,18 @@ export const clientsService = {
       totalOrders: data.total_orders || 0,
       totalSpent: data.total_spent || 0
     };
+  },
+
+  async delete(id: string): Promise<void> {
+    const { error } = await supabase
+      .from('clients')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('Error deleting client:', error);
+      throw error;
+    }
   }
 };
 

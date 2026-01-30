@@ -31,8 +31,17 @@ export const AdminOrdersPage: React.FC = () => {
     const statusFromUrl = searchParams.get('status');
     if (statusFromUrl && (statusFromUrl === 'new' || statusFromUrl === 'queue' || statusFromUrl === 'in-production' || statusFromUrl === 'delivered' || statusFromUrl === 'returned' || statusFromUrl === 'closed')) {
       setStatusFilter([statusFromUrl as OrderStatus]);
+    } else {
+      // If no status in URL or invalid status, clear the filter to show all orders
+      setStatusFilter([]);
     }
   }, [searchParams]);
+
+  // Refresh data when component mounts or when navigating back to this page
+  useEffect(() => {
+    console.log('🔄 AdminOrdersPage mounted - refreshing data...');
+    refreshData();
+  }, []);
 
   const filteredOrders = orders.filter(order => {
     const matchesSearch = 
@@ -132,6 +141,41 @@ export const AdminOrdersPage: React.FC = () => {
         return;
       }
       
+      // Generate invoice first if it doesn't exist
+      let invoiceUrl = null;
+      try {
+        const invoiceResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/invoice/generate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${publicAnonKey}`,
+          },
+          body: JSON.stringify({
+            orderNumber: order.orderNumber,
+            orderDate: order.orderDate,
+            customerName: order.clientName,
+            customerEmail: order.clientEmail,
+            customerPhone: order.clientPhone,
+            customerAddress: order.address,
+            customerCity: order.deliveryCity || order.city || '',
+            customerCounty: order.deliveryCounty || order.county || '',
+            customerPostalCode: order.postalCode || '',
+            items: order.canvasItems,
+            total: order.totalPrice,
+            deliveryPrice: 0,
+          }),
+        });
+        
+        const invoiceData = await invoiceResponse.json();
+        if (invoiceData.success && invoiceData.cloudinaryUrl) {
+          invoiceUrl = invoiceData.cloudinaryUrl;
+          console.log('✅ Invoice generated:', invoiceUrl);
+        }
+      } catch (invoiceError) {
+        console.error('⚠️ Failed to generate invoice (non-critical):', invoiceError);
+        // Continue with email even if invoice generation fails
+      }
+      
       const emailResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/email/send-shipped-confirmation`, {
         method: 'POST',
         headers: {
@@ -142,6 +186,7 @@ export const AdminOrdersPage: React.FC = () => {
           orderNumber: order.orderNumber,
           customerName: order.clientName,
           customerEmail: order.clientEmail,
+          invoiceUrl, // Include invoice URL in email
         }),
       });
       
@@ -342,7 +387,7 @@ export const AdminOrdersPage: React.FC = () => {
                     }}
                     className="px-3 py-2 bg-orange-100 text-orange-800 text-xs rounded-lg hover:bg-orange-200 transition-colors"
                   >
-                    → În Producție
+                    → n Producție
                   </button>
                 </>
               )}

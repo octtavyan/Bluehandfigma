@@ -50,7 +50,7 @@ const NetopiaDebugPage = lazy(() => import('./pages/NetopiaDebugPage'));
 // Lazy load admin pages
 const AdminDashboardPage = lazy(() => import('./pages/admin/AdminDashboardPage').then(m => ({ default: m.AdminDashboardPage })));
 const AdminOrdersPage = lazy(() => import('./pages/admin/AdminOrdersPage').then(m => ({ default: m.AdminOrdersPage })));
-const AdminOrderDetailPage = lazy(() => import('./pages/admin/AdminOrderDetailPage').then(m => ({ default: m.AdminOrderDetailPage })));
+const AdminOrderDetailPage = lazy(() => import('./pages/admin/AdminOrderDetailPage'));
 const AdminClientsPage = lazy(() => import('./pages/admin/AdminClientsPage').then(m => ({ default: m.AdminClientsPage })));
 const AdminClientDetailPage = lazy(() => import('./pages/admin/AdminClientDetailPage').then(m => ({ default: m.AdminClientDetailPage })));
 const AdminUsersPage = lazy(() => import('./pages/admin/AdminUsersPage').then(m => ({ default: m.AdminUsersPage })));

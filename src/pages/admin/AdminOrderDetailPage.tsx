@@ -1,969 +1,984 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate, Link } from 'react-router';
-import { ArrowLeft, Package, User, MapPin, Phone, Mail, Calendar, CreditCard, MessageSquare, X, CheckCircle, Download, Eye, ExternalLink, History, Check, XCircle, FileText } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router';
+import { 
+  ArrowLeft, Package, User, MapPin, CreditCard, Calendar, 
+  Truck, FileText, Download, Eye, X, ExternalLink, Mail, Phone,
+  CheckCircle, AlertCircle, Clock, XCircle, ChevronDown, ChevronUp,
+  RefreshCw
+} from 'lucide-react';
+import { toast } from 'sonner@2.0.3';
 import { AdminLayout } from '../../components/admin/AdminLayout';
 import { useAdmin, OrderStatus } from '../../context/AdminContext';
-import type { OrderNote } from '../../context/AdminContext';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
-import { toast } from 'sonner';
+import { ordersService, canvasSizesService, frameTypesService } from '../../lib/supabaseDataService';
 
-export const AdminOrderDetailPage: React.FC = () => {
+interface Order {
+  id: string;
+  orderNumber: string;
+  orderDate: string;
+  clientName: string;
+  clientEmail: string;
+  clientPhone: string;
+  address: string;
+  city: string;
+  county: string;
+  postalCode: string;
+  totalPrice: number;
+  paymentMethod: string;
+  paymentStatus: string;
+  deliveryStatus: string;
+  notes?: string;
+  canvasItems: CanvasItem[];
+  personType?: 'fizica' | 'juridica';
+  companyName?: string;
+  companyAddress?: string;
+  companyCity?: string;
+  companyCounty?: string;
+  cui?: string;
+  regCom?: string;
+  invoiceUrl?: string;
+}
+
+interface CanvasItem {
+  type: 'personalized' | 'regular';
+  paintingId?: string;
+  paintingTitle?: string;
+  size: string;
+  orientation?: string;
+  price: number;
+  frameType?: string;
+  croppedImage?: string;
+  originalImage?: string;
+  image?: string;
+  printType?: string;
+  unsplashUrl?: string; // Unsplash artist page link
+}
+
+interface Size {
+  id: string;
+  width: number;
+  height: number;
+  price: number;
+  discount?: number;
+  framePrices?: {
+    [key: string]: {
+      price: number;
+      discount: number;
+    };
+  };
+}
+
+interface FrameType {
+  id: string;
+  name: string;
+}
+
+const statusConfig = {
+  payment: {
+    pending: { label: 'Nepaid', color: 'text-yellow-600' },
+    completed: { label: 'Finalizată', color: 'text-green-600' },
+    failed: { label: 'Eșuată', color: 'text-red-600' }
+  },
+  delivery: {
+    new: { label: 'Nou', color: 'text-blue-600' },
+    queue: { label: 'În Așteptare', color: 'text-yellow-600' },
+    'in-production': { label: 'În Producție', color: 'text-orange-600' },
+    delivered: { label: 'Livrat', color: 'text-green-600' },
+    returned: { label: 'Returnat', color: 'text-red-600' },
+    closed: { label: 'Închis', color: 'text-gray-600' }
+  }
+};
+
+// Helper function to get available statuses based on user role
+const getAvailableStatuses = (userRole: string | undefined): OrderStatus[] => {
+  if (userRole === 'production') {
+    // Production manager sees: in-production, delivered, returned, closed
+    return ['in-production', 'delivered', 'returned', 'closed'];
+  }
+  // Account manager and full-admin see all statuses
+  return ['new', 'queue', 'in-production', 'delivered', 'returned', 'closed'];
+};
+
+export default function AdminOrderDetailPage() {
   const { orderId } = useParams<{ orderId: string }>();
   const navigate = useNavigate();
-  const { orders, updateOrderStatus, updateOrderNotes, currentUser, sizes, addOrderNote, markNoteAsRead, closeOrderNote, getUnreadNotesCount, loadOrderDetails, paintings, getFrameTypeById } = useAdmin();
-  
-  const order = orders.find(o => o.id === orderId);
-  const [notes, setNotes] = useState(order?.notes || '');
-  const [detailsLoaded, setDetailsLoaded] = useState(false);
-  const isLoadingDetails = useRef(false);
-  
-  // Load full order details (including items) when page loads
-  useEffect(() => {
-    if (orderId && order && !isLoadingDetails.current && !detailsLoaded) {
-      isLoadingDetails.current = true;
-      
-      loadOrderDetails(orderId).then(() => {
-        setDetailsLoaded(true);
-        isLoadingDetails.current = false;
-      }).catch(() => {
-        isLoadingDetails.current = false;
-      });
-    }
-  }, [orderId]); // Only run when orderId changes - do not include order or detailsLoaded to prevent re-runs
-  const [newNoteText, setNewNoteText] = useState('');
-  const [showStatusModal, setShowStatusModal] = useState(false);
-  const [newStatus, setNewStatus] = useState<OrderStatus>('new');
-  const [statusReason, setStatusReason] = useState('');
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const { currentUser, refreshData } = useAdmin();
+  const [order, setOrder] = useState<Order | null>(null);
+  const [loading, setLoading] = useState(true);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [previewImage, setPreviewImage] = useState('');
+  const [showPaymentDropdown, setShowPaymentDropdown] = useState(false);
+  const [showDeliveryDropdown, setShowDeliveryDropdown] = useState(false);
+  const [sizes, setSizes] = useState<Size[]>([]);
+  const [frameTypes, setFrameTypes] = useState<FrameType[]>([]);
+  const [invoiceUrl, setInvoiceUrl] = useState<string | null>(null);
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
+  const [internalNotes, setInternalNotes] = useState('');
 
-  // Scroll to notes section if hash is present
   useEffect(() => {
-    if (window.location.hash === '#notes') {
-      // Small delay to ensure the page is rendered
-      setTimeout(() => {
-        const notesSection = document.getElementById('notes-section');
-        if (notesSection) {
-          notesSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-      }, 100);
-    }
-  }, []);
+    fetchOrder();
+    fetchSizes();
+    fetchFrameTypes();
+  }, [orderId]);
 
-  if (!order) {
+  const fetchOrder = async () => {
+    try {
+      if (!orderId) {
+        throw new Error('Order ID is missing');
+      }
+      
+      const data = await ordersService.getById(orderId);
+      
+      if (!data) {
+        throw new Error('Order not found');
+      }
+      
+      console.log('📦 Fetched order data:', {
+        orderNumber: data.orderNumber,
+        status: data.status,
+        invoiceUrl: data.invoiceUrl,
+        hasInvoice: !!data.invoiceUrl
+      });
+      
+      // Transform the data to match the component's expected format
+      const transformedOrder = {
+        id: data.id,
+        orderNumber: data.orderNumber || '',
+        orderDate: data.createdAt,
+        clientName: data.customerName,
+        clientEmail: data.customerEmail,
+        clientPhone: data.customerPhone || '',
+        address: data.deliveryAddress || '',
+        city: data.deliveryCity || '',
+        county: data.deliveryCounty || '',
+        postalCode: data.deliveryPostalCode || '',
+        totalPrice: data.total,
+        paymentMethod: data.paymentMethod || 'card',
+        paymentStatus: data.paymentStatus || 'pending',
+        deliveryStatus: data.status || 'pending',
+        notes: data.notes || '',
+        canvasItems: data.items || [],
+        personType: data.personType,
+        companyName: data.companyName,
+        companyAddress: data.companyAddress,
+        companyCity: data.companyCity,
+        companyCounty: data.companyCounty,
+        cui: data.cui,
+        regCom: data.regCom,
+        invoiceUrl: data.invoiceUrl
+      };
+      
+      setOrder(transformedOrder);
+      setInternalNotes(transformedOrder.notes);
+      
+      // Load invoice URL from database if it exists
+      if (data.invoiceUrl) {
+        console.log('✅ Loaded existing invoice from database:', data.invoiceUrl);
+        setInvoiceUrl(data.invoiceUrl);
+      } else {
+        console.log('ℹ️ No invoice found in database for this order');
+        setInvoiceUrl(null);
+      }
+    } catch (error) {
+      console.error('Error fetching order:', error);
+      toast.error('Eroare la încărcarea comenzii');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchInvoiceUrl = async (orderNumber: string) => {
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/invoices/${orderNumber}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${publicAnonKey}`
+          }
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.cloudinaryUrl) {
+          setInvoiceUrl(data.cloudinaryUrl);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching invoice:', error);
+    }
+  };
+
+  const fetchSizes = async () => {
+    try {
+      const data = await canvasSizesService.getAll();
+      setSizes(data);
+    } catch (error) {
+      console.error('Error fetching sizes:', error);
+    }
+  };
+
+  const fetchFrameTypes = async () => {
+    try {
+      const data = await frameTypesService.getAll();
+      setFrameTypes(data);
+    } catch (error) {
+      console.error('Error fetching frame types:', error);
+    }
+  };
+
+  const getFrameTypeById = (id: string) => {
+    return frameTypes.find(f => f.id === id);
+  };
+
+  const regenerateInvoice = async () => {
+    if (!order || !orderId) return;
+    
+    setInvoiceLoading(true);
+    try {
+      // Generate invoice
+      const invoiceData = {
+        orderNumber: order.orderNumber,
+        orderDate: order.orderDate,
+        customerName: order.clientName,
+        customerEmail: order.clientEmail,
+        customerPhone: order.clientPhone,
+        customerAddress: order.address || '',
+        customerCity: order.city || '',
+        customerCounty: order.county || '',
+        customerPostalCode: order.postalCode || '',
+        total: order.totalPrice,
+        deliveryPrice: 0,
+        items: order.canvasItems.map(item => {
+          return {
+            name: item.type === 'personalized' ? 'Tablou Personalizat' : item.paintingTitle || 'Tablou',
+            paintingTitle: item.type === 'personalized' ? 'Tablou Personalizat' : item.paintingTitle || 'Tablou',
+            size: item.size || 'N/A',
+            orientation: item.orientation || '',
+            quantity: 1,
+            price: item.price, // Use the actual item price (includes VAT)
+            total: item.price  // Total is same as price for quantity=1
+          };
+        }),
+        billingName: order.personType === 'juridica' ? order.companyName : order.clientName,
+        billingAddress: order.personType === 'juridica' 
+          ? `${order.companyAddress || ''}, ${order.companyCity || ''}, ${order.companyCounty || ''}`.trim()
+          : `${order.address || ''}, ${order.city || ''}, ${order.county || ''}${order.postalCode ? ', ' + order.postalCode : ''}`.trim(),
+        billingCUI: order.cui || '',
+        billingRegCom: order.regCom || ''
+      };
+      
+      console.log('📋 Generating invoice with data:', invoiceData);
+      
+      const generateResponse = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/invoice/generate`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${publicAnonKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(invoiceData)
+        }
+      );
+      
+      console.log('📡 Invoice generation response status:', generateResponse.status);
+      
+      if (!generateResponse.ok) {
+        const errorText = await generateResponse.text();
+        console.error('❌ Invoice generation error response:', errorText);
+        throw new Error(`Failed to generate invoice: ${generateResponse.status} - ${errorText}`);
+      }
+      
+      const result = await generateResponse.json();
+      console.log('✅ Invoice generated successfully:', result);
+      
+      if (result.cloudinaryUrl) {
+        setInvoiceUrl(result.cloudinaryUrl);
+        
+        // Save invoice URL to database
+        await ordersService.update(orderId, { invoiceUrl: result.cloudinaryUrl });
+        console.log('✅ Invoice URL saved to database');
+        
+        toast.success('Factura a fost generată și salvată cu succes!');
+      } else {
+        console.error('❌ No cloudinaryUrl in response:', result);
+        toast.error('Factura a fost generată dar URL-ul lipsește');
+      }
+    } catch (error) {
+      console.error('❌ Error generating invoice:', error);
+      toast.error(error instanceof Error ? error.message : 'Eroare la generarea facturii');
+    } finally {
+      setInvoiceLoading(false);
+    }
+  };
+
+  const updateStatus = async (type: 'payment' | 'delivery', newStatus: string) => {
+    try {
+      if (!orderId) return;
+      
+      const updateData = type === 'payment' 
+        ? { paymentStatus: newStatus }
+        : { status: newStatus }; // Database uses 'status' for delivery status
+      
+      console.log('📝 Updating order status:', { orderId, type, newStatus, updateData });
+      const success = await ordersService.update(orderId, updateData);
+      
+      if (!success) {
+        console.error('❌ Failed to update order status in database');
+        toast.error('Eroare la actualizarea statusului în baza de date');
+        return;
+      }
+      
+      console.log('✅ Order status updated successfully in database');
+      toast.success(`Status ${type === 'payment' ? 'plată' : 'livrare'} actualizat!`);
+      
+      // If delivery status changed to "delivered", generate invoice (if doesn't exist) and send email
+      if (type === 'delivery' && newStatus === 'delivered' && order) {
+        let generatedInvoiceUrl = invoiceUrl; // Use existing invoice if available
+        
+        // Only generate invoice if one doesn't exist
+        if (!generatedInvoiceUrl) {
+          console.log('📄 No existing invoice, generating new one...');
+          try {
+            const invoiceResponse = await fetch(
+              `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/invoice/generate`,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${publicAnonKey}`,
+                },
+                body: JSON.stringify({
+                  orderNumber: order.orderNumber,
+                  orderDate: order.orderDate,
+                  customerName: order.clientName,
+                  customerEmail: order.clientEmail,
+                  customerPhone: order.clientPhone,
+                  customerAddress: order.address || '',
+                  customerCity: order.city || '',
+                  customerCounty: order.county || '',
+                  customerPostalCode: order.postalCode || '',
+                  total: order.totalPrice,
+                  deliveryPrice: 0,
+                  items: order.canvasItems.map(item => ({
+                    name: item.type === 'personalized' ? 'Tablou Personalizat' : item.paintingTitle || 'Tablou',
+                    paintingTitle: item.type === 'personalized' ? 'Tablou Personalizat' : item.paintingTitle || 'Tablou',
+                    size: item.size || 'N/A',
+                    orientation: item.orientation || '',
+                    quantity: 1,
+                    price: item.price,
+                    total: item.price
+                  })),
+                  billingName: order.personType === 'juridica' ? order.companyName : order.clientName,
+                  billingAddress: order.personType === 'juridica' 
+                    ? `${order.companyAddress || ''}, ${order.companyCity || ''}, ${order.companyCounty || ''}`.trim()
+                    : `${order.address || ''}, ${order.city || ''}, ${order.county || ''}${order.postalCode ? ', ' + order.postalCode : ''}`.trim(),
+                  billingCUI: order.cui || '',
+                  billingRegCom: order.regCom || ''
+                })
+              }
+            );
+            
+            const invoiceData = await invoiceResponse.json();
+            
+            if (invoiceData.success && invoiceData.cloudinaryUrl) {
+              generatedInvoiceUrl = invoiceData.cloudinaryUrl;
+              setInvoiceUrl(generatedInvoiceUrl);
+              
+              // Save invoice URL to database
+              await ordersService.update(orderId, { invoiceUrl: generatedInvoiceUrl });
+              console.log('✅ Invoice generated and saved to database:', generatedInvoiceUrl);
+              toast.success('📄 Factură generată și salvată!');
+            }
+          } catch (error) {
+            console.error('❌ Error generating invoice:', error);
+            toast.error('Eroare la generarea facturii');
+          }
+        } else {
+          console.log('ℹ️ Using existing invoice:', generatedInvoiceUrl);
+        }
+        
+        // Send shipped confirmation email with invoice
+        try {
+          const emailResponse = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/email/send-shipped-confirmation`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${publicAnonKey}`,
+              },
+              body: JSON.stringify({
+                orderNumber: order.orderNumber,
+                customerName: order.clientName,
+                customerEmail: order.clientEmail,
+                invoiceUrl: generatedInvoiceUrl,
+              }),
+            }
+          );
+          
+          if (emailResponse.ok) {
+            toast.success('📧 Email de confirmare livrare trimis!');
+          }
+        } catch (error) {
+          console.error('❌ Error sending email:', error);
+          toast.error('Eroare la trimiterea emailului');
+        }
+      }
+      
+      // Refresh order data from database
+      await fetchOrder();
+      
+      // Refresh global context data so Orders page and Dashboard show updated status
+      console.log('🔄 Refreshing global context data...');
+      await refreshData();
+      console.log('✅ Global context refreshed');
+      
+      setShowPaymentDropdown(false);
+      setShowDeliveryDropdown(false);
+    } catch (error) {
+      console.error('Error updating status:', error);
+      toast.error('Eroare la actualizarea statusului');
+    }
+  };
+
+  const saveNotes = async () => {
+    try {
+      if (!orderId) return;
+      
+      await ordersService.update(orderId, { notes: internalNotes });
+      toast.success('Notițele au fost salvate!');
+      fetchOrder();
+    } catch (error) {
+      console.error('Error saving notes:', error);
+      toast.error('Eroare la salvarea notițelor');
+    }
+  };
+
+  const downloadImage = async (url: string, filename: string) => {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(blobUrl);
+      toast.success('Imagine descărcată!');
+    } catch (error) {
+      console.error('Error downloading image:', error);
+      toast.error('Eroare la descărcarea imaginii');
+    }
+  };
+
+  if (loading) {
     return (
       <AdminLayout>
-        <div className="text-center py-12">
-          <p className="text-gray-600 mb-4">Comanda nu a fost găsită</p>
-          <button
-            onClick={() => navigate('/admin/orders')}
-            className="px-6 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600"
-          >
-            Înapoi la Comenzi
-          </button>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="text-center">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-blue-500 mb-4"></div>
+            <p className="text-gray-600">Se încarcă comanda...</p>
+          </div>
         </div>
       </AdminLayout>
     );
   }
 
-  const handleSaveNotes = () => {
-    updateOrderNotes(order.id, notes);
-    alert('Notițele au fost salvate!');
-  };
-
-  const handleOpenStatusModal = async (status: OrderStatus) => {
-    // Statuses that require a reason/note: 'queue', 'returned', 'closed'
-    const requiresReason = status === 'queue' || status === 'returned' || status === 'closed';
-    
-    if (requiresReason) {
-      // Show modal for statuses requiring a reason
-      setNewStatus(status);
-      setShowStatusModal(true);
-    } else {
-      // Update directly for simple status changes (new, in-production, delivered)
-      updateOrderStatus(order.id, status, '', currentUser?.fullName || 'Unknown');
-      
-      // If status is changing to "delivered", send shipped confirmation email
-      if (status === 'delivered') {
-        await sendShippedEmail();
-      }
-    }
-  };
-  
-  // Helper function to send shipped confirmation email
-  const sendShippedEmail = async () => {
-    try {
-      if (!order.clientEmail || !order.orderNumber) {
-        toast.error('Eroare: Date comandă incomplete');
-        return;
-      }
-      
-      const emailResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/email/send-shipped-confirmation`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${publicAnonKey}`,
-        },
-        body: JSON.stringify({
-          orderNumber: order.orderNumber,
-          customerName: order.clientName,
-          customerEmail: order.clientEmail,
-        }),
-      });
-      
-      const responseData = await emailResponse.json();
-      
-      if (!emailResponse.ok) {
-        throw new Error(responseData.error || 'Email sending failed');
-      }
-      
-      toast.success('Email de confirmare livrare trimis!');
-    } catch (error) {
-      console.error('Failed to send shipped confirmation email:', error);
-      toast.error(`Eroare la trimiterea emailului: ${error instanceof Error ? error.message : 'Eroare necunoscută'}`);
-    }
-  };
-  
-  // Handle status change with modal (for statuses that require a reason)
-  const handleStatusChange = async (reason: string) => {
-    // Update order status
-    updateOrderStatus(order.id, newStatus, reason, currentUser?.fullName || 'Unknown');
-    
-    // If status is changing to "delivered", send shipped confirmation email
-    if (newStatus === 'delivered') {
-      await sendShippedEmail();
-    }
-    
-    // Close modal
-    setShowStatusModal(false);
-  };
-
-  const getAvailableStatuses = (): OrderStatus[] => {
-    if (currentUser?.role === 'full-admin') {
-      return ['new', 'queue', 'in-production', 'delivered', 'returned', 'closed'];
-    } else if (currentUser?.role === 'account-manager') {
-      if (order.status === 'new') {
-        return ['queue', 'closed'];
-      } else if (order.status === 'queue') {
-        return ['in-production', 'closed'];
-      }
-    } else if (currentUser?.role === 'production') {
-      if (order.status === 'in-production') {
-        return ['delivered', 'returned'];
-      }
-    }
-    return [];
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'new': return 'bg-blue-100 text-blue-800';
-      case 'queue': return 'bg-purple-100 text-purple-800';
-      case 'in-production': return 'bg-yellow-100 text-yellow-800';
-      case 'delivered': return 'bg-green-100 text-green-800';
-      case 'returned': return 'bg-red-100 text-red-800';
-      case 'closed': return 'bg-gray-100 text-gray-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  const getStatusLabel = (status: string) => {
-    switch (status) {
-      case 'new': return 'Nou';
-      case 'queue': return 'În Așteptare';
-      case 'in-production': return 'În Producție';
-      case 'delivered': return 'Livrat';
-      case 'returned': return 'Returnat';
-      case 'closed': return 'Închis';
-      default: return status;
-    }
-  };
-
-  const downloadImage = (imageUrl: string, fileName: string) => {
-    // Open image in a new tab so user can view or download
-    window.open(imageUrl, '_blank', 'noopener,noreferrer');
-  };
-
-  const availableStatuses = getAvailableStatuses();
+  if (!order) {
+    return (
+      <AdminLayout>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="text-center">
+            <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+            <h2 className="text-2xl font-semibold text-gray-900 mb-2">Comandă negăsită</h2>
+            <p className="text-gray-600 mb-4">Comanda solicitată nu a putut fi găsită.</p>
+            <button
+              onClick={() => navigate('/admin/orders')}
+              className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+            >
+              Înapoi la comenzi
+            </button>
+          </div>
+        </div>
+      </AdminLayout>
+    );
+  }
 
   return (
     <AdminLayout>
-      <div className="mb-8">
-        <button
-          onClick={() => navigate('/admin/orders')}
-          className="flex items-center space-x-2 text-gray-600 hover:text-gray-900 mb-4"
-        >
-          <ArrowLeft className="w-5 h-5" />
-          <span>Înapoi la Comenzi</span>
-        </button>
-        
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl text-gray-900 mb-2">Comandă #{order.orderNumber || order.id.slice(-8)}</h1>
-            <p className="text-gray-600">
-              Creată la {new Date(order.orderDate).toLocaleString('ro-RO')}
-            </p>
-          </div>
+      <div>
+        {/* Header */}
+        <div className="mb-4">
+          <button
+            onClick={() => navigate('/admin/orders')}
+            className="flex items-center space-x-1 text-gray-600 hover:text-gray-900 mb-3 transition-colors text-xs sm:text-sm"
+          >
+            <ArrowLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            <span>Înapoi la Comenzi</span>
+          </button>
           
-          <div className="flex items-center space-x-3">
-            <span className={`status-badge px-4 py-2 rounded-full text-sm ${getStatusColor(order.status)}`}>
-              {getStatusLabel(order.status)}
-            </span>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <div>
+              <h1 className="text-2xl sm:text-3xl text-gray-900">Comandă {order.orderNumber}</h1>
+              <p className="text-xs sm:text-sm text-gray-600 mt-1">
+                <Calendar className="w-3 h-3 sm:w-3.5 sm:h-3.5 inline mr-1" />
+                Creat la {new Date(order.orderDate).toLocaleDateString('ro-RO', {
+                  day: '2-digit',
+                  month: '2-digit',
+                  year: 'numeric'
+                })}, la {new Date(order.orderDate).toLocaleTimeString('ro-RO', {
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })}
+              </p>
+            </div>
             
-            {availableStatuses.length > 0 && (
+            <div className="flex gap-2">
+              {invoiceUrl ? (
+                <>
+                  <a
+                    href={invoiceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-1.5 sm:px-4 sm:py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-xs sm:text-sm flex items-center gap-1.5"
+                  >
+                    <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    Descarcă Factură
+                  </a>
+                  <button
+                    onClick={regenerateInvoice}
+                    disabled={invoiceLoading}
+                    className="px-3 py-1.5 sm:px-4 sm:py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors text-xs sm:text-sm flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${invoiceLoading ? 'animate-spin' : ''}`} />
+                    {invoiceLoading ? 'Se regenerează...' : 'Regenerează'}
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={regenerateInvoice}
+                  disabled={invoiceLoading}
+                  className="px-3 py-1.5 sm:px-4 sm:py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-xs sm:text-sm flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <FileText className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${invoiceLoading ? 'animate-spin' : ''}`} />
+                  {invoiceLoading ? 'Se generează...' : 'Generează Factură'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Status Cards Row */}
+        <div className="grid grid-cols-2 gap-4 sm:gap-6 mb-6 sm:mb-8">
+          {/* Payment Status */}
+          <div className="bg-white rounded-lg p-4 sm:p-6 border-2 border-gray-200">
+            <h3 className="text-xs sm:text-sm text-gray-600 mb-2 sm:mb-3">Status Plată</h3>
+            <div className="relative">
               <button
-                onClick={() => {
-                  setNewStatus(availableStatuses[0]); // Set to first available status
-                  setShowStatusModal(true);
-                }}
-                className="px-6 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors"
+                onClick={() => setShowPaymentDropdown(!showPaymentDropdown)}
+                className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 rounded border border-gray-200 hover:bg-gray-100 transition-colors"
               >
-                Schimbă Status
+                <span className={`text-xs sm:text-sm ${statusConfig.payment[order.paymentStatus as keyof typeof statusConfig.payment]?.color || 'text-gray-600'}`}>
+                  {statusConfig.payment[order.paymentStatus as keyof typeof statusConfig.payment]?.label || order.paymentStatus}
+                </span>
+                <ChevronDown className="w-4 h-4 text-gray-400" />
               </button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-6">
-        {/* Client Info */}
-        <div className="bg-white rounded-lg border-2 border-gray-200 p-6">
-          <h3 className="text-lg text-gray-900 mb-4 flex items-center space-x-2">
-            <User className="w-5 h-5 text-yellow-600" />
-            <span>Informații Client</span>
-          </h3>
-          <div className="space-y-3 text-sm">
-            <div>
-              <p className="text-gray-600">Nume</p>
-              <p className="text-gray-900">{order.clientName}</p>
-            </div>
-            <div>
-              <p className="text-gray-600">Email</p>
-              <p className="text-gray-900">{order.clientEmail}</p>
-            </div>
-            <div>
-              <p className="text-gray-600">Telefon</p>
-              <p className="text-gray-900">{order.clientPhone}</p>
+              {showPaymentDropdown && (
+                <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg">
+                  {Object.entries(statusConfig.payment).map(([key, config]) => (
+                    <button
+                      key={key}
+                      onClick={() => updateStatus('payment', key)}
+                      className="w-full text-left px-3 py-2 hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg text-xs sm:text-sm"
+                    >
+                      {config.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
-        </div>
 
-        {/* Delivery Info - Always shows delivery address */}
-        <div className="bg-white rounded-lg border-2 border-gray-200 p-6">
-          <h3 className="text-lg text-gray-900 mb-4 flex items-center space-x-2">
-            <MapPin className="w-5 h-5 text-yellow-600" />
-            <span>Informații Livrare</span>
-          </h3>
-          <div className="space-y-3 text-sm">
-            <div>
-              <p className="text-gray-600">Adresă</p>
-              <p className="text-gray-900">{order.address || '-'}</p>
-            </div>
-            <div>
-              <p className="text-gray-600">Oraș</p>
-              <p className="text-gray-900">{order.city || '-'}</p>
-            </div>
-            <div>
-              <p className="text-gray-600">Județ</p>
-              <p className="text-gray-900">{order.county || '-'}</p>
-            </div>
-            <div>
-              <p className="text-gray-600">Cod Poștal</p>
-              <p className="text-gray-900">{order.postalCode || '-'}</p>
-            </div>
-            <div>
-              <p className="text-gray-600">Metodă Livrare</p>
-              <p className="text-gray-900 capitalize">
-                {order.deliveryMethod === 'express' && 'Express (1-4 ore)'}
-                {order.deliveryMethod === 'standard' && 'Standard (24-48 ore)'}
-                {order.deliveryMethod === 'economic' && 'Economic (3-4 zile)'}
-              </p>
+          {/* Delivery Status - Display Only */}
+          <div className="bg-white rounded-lg p-4 sm:p-6 border-2 border-gray-200">
+            <h3 className="text-xs sm:text-sm text-gray-600 mb-2 sm:mb-3">Status Livrare</h3>
+            <div className="relative">
+              <button
+                onClick={() => setShowDeliveryDropdown(!showDeliveryDropdown)}
+                className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 rounded border border-gray-200 hover:bg-gray-100 transition-colors"
+              >
+                <span className={`text-xs sm:text-sm ${statusConfig.delivery[order.deliveryStatus as keyof typeof statusConfig.delivery]?.color || 'text-gray-600'}`}>
+                  {statusConfig.delivery[order.deliveryStatus as keyof typeof statusConfig.delivery]?.label || order.deliveryStatus}
+                </span>
+                <ChevronDown className="w-4 h-4 text-gray-400" />
+              </button>
+              {showDeliveryDropdown && (
+                <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg">
+                  {getAvailableStatuses(currentUser?.role).map((statusKey) => {
+                    const config = statusConfig.delivery[statusKey as keyof typeof statusConfig.delivery];
+                    return (
+                      <button
+                        key={statusKey}
+                        onClick={() => updateStatus('delivery', statusKey)}
+                        className="w-full text-left px-3 py-2 hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg text-xs sm:text-sm"
+                      >
+                        {config.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Payment Info */}
-        <div className="bg-white rounded-lg border-2 border-gray-200 p-6">
-          <h3 className="text-lg text-gray-900 mb-4 flex items-center space-x-2">
-            <CreditCard className="w-5 h-5 text-yellow-600" />
-            <span>Informații Plată</span>
-          </h3>
-          <div className="space-y-3 text-sm">
-            <div>
-              <p className="text-gray-600">Metodă Plată</p>
-              <p className="text-gray-900">
-                {order.paymentMethod === 'card' ? 'Card Bancar' : 'Ramburs'}
-              </p>
+        {/* Info Cards Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
+          {/* Customer Info */}
+          <div className="bg-white rounded-lg border-2 border-gray-200 p-4 sm:p-6">
+            <div className="flex items-center gap-2 mb-3 sm:mb-4">
+              <User className="w-5 h-5 sm:w-6 sm:h-6 text-blue-500" />
+              <h3 className="text-base sm:text-lg text-gray-900">Informații Client</h3>
             </div>
-            <div>
-              <p className="text-gray-600">Total Comandă</p>
-              <p className="text-2xl text-yellow-600">{order.totalPrice.toFixed(2)} lei</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Invoice Data - Shows billing info based on person type */}
-        <div className={`rounded-lg border-2 p-6 ${
-          order.personType === 'juridica' 
-            ? 'bg-blue-50 border-blue-200' 
-            : 'bg-white border-gray-200'
-        }`}>
-          <h3 className="text-lg text-gray-900 mb-4 flex items-center space-x-2">
-            <FileText className={`w-5 h-5 ${order.personType === 'juridica' ? 'text-blue-600' : 'text-yellow-600'}`} />
-            <span>Date Facturare</span>
-          </h3>
-          
-          {order.personType === 'juridica' && order.companyName ? (
-            // Company billing info (company headquarters)
-            <div className="space-y-3 text-sm">
-              <div>
-                <p className="text-gray-600">Tip Client</p>
-                <p className="text-gray-900">Persoană Juridică</p>
-              </div>
-              <div>
-                <p className="text-gray-600">Nume Companie</p>
-                <p className="text-gray-900">{order.companyName}</p>
-              </div>
-              <div>
-                <p className="text-gray-600">CUI</p>
-                <p className="text-gray-900">{order.cui || '-'}</p>
-              </div>
-              <div>
-                <p className="text-gray-600">Reg. Com.</p>
-                <p className="text-gray-900">{order.regCom || '-'}</p>
-              </div>
-              <div>
-                <p className="text-gray-600">Adresă Facturare</p>
-                <p className="text-gray-900">
-                  {[order.companyAddress, order.companyCity, order.companyCounty].filter(Boolean).join(', ') || '-'}
-                </p>
-              </div>
-            </div>
-          ) : (
-            // Individual billing info (same as delivery for fizica)
-            <div className="space-y-3 text-sm">
-              <div>
-                <p className="text-gray-600">Tip Client</p>
-                <p className="text-gray-900">Persoană Fizică</p>
-              </div>
+            <div className="space-y-2 text-xs sm:text-sm">
               <div>
                 <p className="text-gray-600">Nume</p>
                 <p className="text-gray-900">{order.clientName}</p>
               </div>
               <div>
                 <p className="text-gray-600">Email</p>
-                <p className="text-gray-900">{order.clientEmail}</p>
+                <p className="text-gray-900 break-all">{order.clientEmail}</p>
               </div>
               <div>
                 <p className="text-gray-600">Telefon</p>
                 <p className="text-gray-900">{order.clientPhone}</p>
               </div>
+            </div>
+          </div>
+
+          {/* Delivery Info */}
+          <div className="bg-white rounded-lg border-2 border-gray-200 p-4 sm:p-6">
+            <div className="flex items-center gap-2 mb-3 sm:mb-4">
+              <MapPin className="w-5 h-5 sm:w-6 sm:h-6 text-blue-500" />
+              <h3 className="text-base sm:text-lg text-gray-900">Informații Livrare</h3>
+            </div>
+            <div className="space-y-2 text-xs sm:text-sm">
               <div>
-                <p className="text-gray-600">Adresă Facturare</p>
-                <p className="text-gray-900">
-                  {[order.address, order.city, order.county, order.postalCode].filter(Boolean).join(', ') || '-'}
-                </p>
+                <p className="text-gray-600">Adresă</p>
+                <p className="text-gray-900">{order.address}</p>
+              </div>
+              <div>
+                <p className="text-gray-600">Oraș</p>
+                <p className="text-gray-900">{order.city}</p>
+              </div>
+              <div>
+                <p className="text-gray-600">Județ</p>
+                <p className="text-gray-900">{order.county}</p>
+              </div>
+              {order.postalCode && (
+                <div>
+                  <p className="text-gray-600">Cod Poștal</p>
+                  <p className="text-gray-900">{order.postalCode}</p>
+                </div>
+              )}
+              <div className="pt-2 border-t border-gray-200">
+                <p className="text-gray-600">Modalitate Livrare</p>
+                <p className="text-gray-900">Standard (2-4 Zile)</p>
               </div>
             </div>
-          )}
-        </div>
-      </div>
-
-      {/* Canvas Items */}
-      <div className="bg-white rounded-lg border-2 border-gray-200 p-6 mb-6">
-        <h3 className="text-lg text-gray-900 mb-4 flex items-center space-x-2">
-          <Package className="w-5 h-5 text-yellow-600" />
-          <span>Produse Comandate ({order.canvasItems.length})</span>
-        </h3>
-        
-        {/* Debug log for sizes */}
-        {console.log('🔍 Sizes loaded:', sizes.length, 'sizes')}
-        {console.log('🔍 First size:', sizes[0])}
-        {console.log('🔍 Order items:', order.canvasItems)}
-        
-        {/* Show loading state while details are being fetched */}
-        {!detailsLoaded && order.canvasItems.length > 0 && order.canvasItems[0]?.type === 'placeholder' && (
-          <div className="text-center py-8">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-gray-200 border-t-yellow-500 mb-2"></div>
-            <p className="text-sm text-gray-600">Se încarcă detaliile produselor...</p>
           </div>
-        )}
-        
-        {/* Card View for Products - No horizontal scroll */}
-        <div className="space-y-4">{order.canvasItems.filter(item => item.type !== 'placeholder').map((item, index) => {
-            if (item.type === 'personalized') {
-              // Personalized Canvas Card
-              const sizeData = sizes.find(s => s.id === item.size);
-              
-              // Calculate frame price if frame is selected
-              let framePrice = 0;
-              if (item.frameType && sizeData?.framePrices && item.frameType in sizeData.framePrices) {
-                const framePriceData = sizeData.framePrices[item.frameType];
-                framePrice = framePriceData.discount > 0 
-                  ? framePriceData.price * (1 - framePriceData.discount / 100)
-                  : framePriceData.price;
-              }
-              
-              // Check if frame is "Fara Rama" to hide the frame tile
+
+          {/* Payment Info */}
+          <div className="bg-white rounded-lg border-2 border-gray-200 p-4 sm:p-6">
+            <div className="flex items-center gap-2 mb-3 sm:mb-4">
+              <CreditCard className="w-5 h-5 sm:w-6 sm:h-6 text-blue-500" />
+              <h3 className="text-base sm:text-lg text-gray-900">Informații Plată</h3>
+            </div>
+            <div className="space-y-2 text-xs sm:text-sm">
+              <div>
+                <p className="text-gray-600">Metodă plată</p>
+                <p className="text-gray-900 capitalize">{order.paymentMethod}</p>
+              </div>
+              <div>
+                <p className="text-gray-600">Total Comandă</p>
+                <p className="text-blue-500 font-semibold text-2xl sm:text-3xl">{order.totalPrice.toFixed(2)} lei</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Invoice Info */}
+          <div className="bg-white rounded-lg border-2 border-gray-200 p-4 sm:p-6">
+            <div className="flex items-center gap-2 mb-3 sm:mb-4">
+              <FileText className="w-5 h-5 sm:w-6 sm:h-6 text-blue-500" />
+              <h3 className="text-base sm:text-lg text-gray-900">Date Facturare</h3>
+            </div>
+            <div className="space-y-2 text-xs sm:text-sm">
+              <div>
+                <p className="text-gray-600">Tip Client</p>
+                <p className="text-gray-900 capitalize">{order.personType === 'fizica' ? 'Persoană Fizică' : 'Persoană Juridică'}</p>
+              </div>
+              {order.personType === 'juridica' && (
+                <>
+                  <div>
+                    <p className="text-gray-600">Nume</p>
+                    <p className="text-gray-900">{order.companyName}</p>
+                  </div>
+                  {order.cui && (
+                    <div>
+                      <p className="text-gray-600">CUI</p>
+                      <p className="text-gray-900">{order.cui}</p>
+                    </div>
+                  )}
+                  {order.regCom && (
+                    <div>
+                      <p className="text-gray-600">Reg. Com.</p>
+                      <p className="text-gray-900">{order.regCom}</p>
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-gray-600">Telefon</p>
+                    <p className="text-gray-900">{order.clientPhone}</p>
+                  </div>
+                  <div className="pt-2 border-t border-gray-200">
+                    <p className="text-gray-600">Adresă Facturare</p>
+                    <p className="text-gray-900">{order.companyAddress}, {order.companyCity}, {order.companyCounty}</p>
+                  </div>
+                </>
+              )}
+              {order.personType === 'fizica' && (
+                <>
+                  <div>
+                    <p className="text-gray-600">Nume</p>
+                    <p className="text-gray-900">{order.clientName}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-600">Email</p>
+                    <p className="text-gray-900 break-all">{order.clientEmail}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-600">Telefon</p>
+                    <p className="text-gray-900">{order.clientPhone}</p>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Products Section */}
+        <div className="bg-white rounded-lg border-2 border-gray-200 p-4 sm:p-6 mb-6 sm:mb-8">
+          <div className="flex items-center gap-2 mb-4 sm:mb-6">
+            <Package className="w-5 h-5 sm:w-6 sm:h-6 text-blue-500" />
+            <h3 className="text-base sm:text-lg text-gray-900">Produse Comandate ({order.canvasItems.length})</h3>
+          </div>
+          
+          <div className="space-y-4 max-w-2xl">
+            {order.canvasItems.map((item, index) => {
+              // Find size data by matching the formatted size string (stored as "30×40 cm")
+              const sizeData = sizes.find(s => `${s.width}×${s.height} cm` === item.size);
               const frameTypeData = item.frameType ? getFrameTypeById(item.frameType) : null;
-              const hasActualFrame = frameTypeData && frameTypeData.name !== 'Fara Rama';
               
-              // Calculate base price (without frame)
-              const basePrice = item.price - framePrice;
+              // Calculate the actual price if item.price is 0 or missing
+              let displayPrice = item.price || 0;
               
+              if (displayPrice === 0 && sizeData) {
+                // Recalculate base price from size data
+                displayPrice = sizeData.discount > 0 
+                  ? sizeData.price * (1 - sizeData.discount / 100)
+                  : sizeData.price;
+                
+                // Add frame price if applicable
+                if (item.frameType && sizeData.framePrices && item.frameType in sizeData.framePrices) {
+                  const framePriceData = sizeData.framePrices[item.frameType];
+                  const framePrice = framePriceData.discount > 0 
+                    ? framePriceData.price * (1 - framePriceData.discount / 100)
+                    : framePriceData.price;
+                  displayPrice += framePrice;
+                }
+              }
+
+              if (item.type === 'personalized') {
+                return (
+                  <div key={index} className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                    <p className="text-sm font-medium text-gray-900 mb-3">{item.paintingTitle || 'Tablou Personalizat'}</p>
+                    
+                    <div className="flex gap-3">
+                      <div className="w-16 h-16 bg-white rounded-lg overflow-hidden flex-shrink-0 border border-blue-300">
+                        <img 
+                          src={item.croppedImage} 
+                          alt="Tablou Personalizat"
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-2">
+                          <FileText className="w-4 h-4 text-blue-600" />
+                          <span className="text-xs font-medium text-blue-600">Tip Print</span>
+                        </div>
+                        <div className="space-y-1 text-sm">
+                          <div className="flex justify-between gap-4">
+                            <span className="text-gray-600 text-xs">Print Type:</span>
+                            <span className="text-gray-900 font-medium text-xs">{item.printType || 'Print Canvas'}</span>
+                          </div>
+                          <div className="flex justify-between gap-4">
+                            <span className="text-gray-600 text-xs">Dimensiune:</span>
+                            <span className="text-gray-900 font-medium text-xs">{item.size}</span>
+                          </div>
+                          <div className="flex justify-between gap-4 pt-1 border-t border-blue-200">
+                            <span className="text-gray-600 text-xs">Preț:</span>
+                            <span className="text-blue-600 font-bold text-sm">{displayPrice.toFixed(2)} lei</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex gap-2 mt-3 pt-3 border-t border-blue-200">
+                      <button
+                        onClick={() => downloadImage(item.originalImage || item.croppedImage, `original-${index}.jpg`)}
+                        className="flex-1 px-3 py-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors text-xs flex items-center justify-center gap-1"
+                      >
+                        <Download className="w-3 h-3" />
+                        Descarcă Imagine
+                      </button>
+                      <button
+                        onClick={() => {
+                          setPreviewImage(item.croppedImage);
+                          setShowPreviewModal(true);
+                        }}
+                        className="flex-1 px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded hover:bg-gray-50 transition-colors text-xs flex items-center justify-center gap-1"
+                      >
+                        <Eye className="w-3 h-3" />
+                        Vezi Cropped
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
+
               return (
-                <div key={index} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
-                  <div className="flex flex-col sm:flex-row gap-4">
-                    {/* Image */}
-                    <div className="w-24 h-24 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0 border-2 border-yellow-500">
+                <div key={index} className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                  <p className="text-sm font-medium text-gray-900 mb-3">{item.paintingTitle}</p>
+                  
+                  <div className="flex gap-3">
+                    <div className="w-16 h-16 bg-white rounded-lg overflow-hidden flex-shrink-0">
                       <img 
-                        src={item.croppedImage} 
-                        alt={`Tablou Personalizat ${index + 1}`}
+                        src={item.image} 
+                        alt={item.paintingTitle}
                         className="w-full h-full object-cover"
                       />
                     </div>
                     
-                    {/* Content */}
                     <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-start justify-between gap-2 mb-4">
-                        <div className="flex-1">
-                          <p className="text-sm text-gray-900 mb-2">Tablou Personalizat</p>
-                          <p className="text-xs text-[#86C2FF]">Personalizat • Previzualizare Cropping</p>
-                        </div>
-                        <div className="flex-shrink-0">
-                          {hasActualFrame && framePrice > 0 ? (
-                            <p className="text-lg text-gray-900">
-                              {basePrice.toFixed(2)} + {framePrice.toFixed(2)} lei
-                            </p>
-                          ) : (
-                            <p className="text-lg text-gray-900">{item.price.toFixed(2)} lei</p>
-                          )}
-                        </div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <FileText className="w-4 h-4 text-purple-600" />
+                        <span className="text-xs font-medium text-purple-600">Tip Print</span>
                       </div>
-                      
-                      {/* Info Tiles */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-                        {/* Dimension & Orientation Tile */}
-                        <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
-                          <div className="flex items-center space-x-2 mb-2">
-                            <FileText className="w-4 h-4 text-purple-600" />
-                            <span className="text-xs text-purple-600 font-medium">Dimensiune & Orientare</span>
-                          </div>
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between">
-                              <p className="text-xs text-gray-600">Dimensiune:</p>
-                              <p className={`text-sm font-medium ${item.size === 'N/A' ? 'text-gray-400 italic' : 'text-gray-900'}`}>
-                                {item.size === 'N/A' ? 'Indisponibil' : item.size}
-                              </p>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <p className="text-xs text-gray-600">Orientare:</p>
-                              <p className="text-sm text-gray-900 font-medium capitalize">{item.orientation}</p>
-                            </div>
-                            {item.printType && (
-                              <div className="flex items-center justify-between pt-2 border-t border-purple-200">
-                                <p className="text-xs text-gray-600">Tip Print:</p>
-                                <p className="text-sm text-purple-600 font-medium">{item.printType}</p>
-                              </div>
-                            )}
-                            <div className="flex items-center justify-between pt-2 border-t border-purple-200">
-                              <p className="text-xs text-gray-600">Cant: 1</p>
-                              <p className="text-sm text-purple-600 font-medium">{hasActualFrame ? basePrice.toFixed(2) : item.price.toFixed(2)} lei</p>
-                            </div>
-                          </div>
+                      <div className="space-y-1 text-sm">
+                        <div className="flex justify-between gap-4">
+                          <span className="text-gray-600 text-xs">Print Type:</span>
+                          <span className="text-gray-900 font-medium text-xs">{item.printType || 'Print Canvas'}</span>
                         </div>
-                        
-                        {/* Frame Tile - Only show if not "Fara Rama" */}
-                        {hasActualFrame && (
-                          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                            <div className="flex items-center space-x-2 mb-2">
-                              <Package className="w-4 h-4 text-amber-600" />
-                              <span className="text-xs text-amber-600 font-medium">Ramă</span>
-                            </div>
-                            <p className="text-sm text-gray-900 mb-1">{frameTypeData.name}</p>
-                            <p className="text-sm text-amber-600 font-medium">+{framePrice.toFixed(2)} lei</p>
-                          </div>
-                        )}
-                      </div>
-                      
-                      {/* Actions */}
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          onClick={() => downloadImage(item.originalImage || item.croppedImage, `original-${order.id}-${index + 1}.jpg`)}
-                          className="px-3 py-1.5 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors text-xs flex items-center space-x-1"
-                          title="Descarcă imaginea originală (calitate maximă)"
-                          disabled={!item.originalImage && !item.croppedImage}
-                        >
-                          <Download className="w-3 h-3" />
-                          <span>Descarcă Original</span>
-                        </button>
-                        <button
-                          onClick={() => {
-                            setPreviewImage(item.croppedImage);
-                            setShowPreviewModal(true);
-                          }}
-                          className="px-3 py-1.5 bg-[#86C2FF] text-white rounded-lg hover:bg-[#6BADEF] transition-colors text-xs flex items-center space-x-1"
-                          title="Vizualizează previzualizarea cropată"
-                          disabled={!item.croppedImage}
-                        >
-                          <Eye className="w-3 h-3" />
-                          <span>Vezi Preview</span>
-                        </button>
+                        <div className="flex justify-between gap-4">
+                          <span className="text-gray-600 text-xs">Dimensiune:</span>
+                          <span className="text-gray-900 font-medium text-xs">{item.size}</span>
+                        </div>
+                        <div className="flex justify-between gap-4 pt-1 border-t border-purple-200">
+                          <span className="text-gray-600 text-xs">Preț:</span>
+                          <span className="text-purple-600 font-bold text-sm">{displayPrice.toFixed(2)} lei</span>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              );
-            } else {
-              // Regular Painting Card
-              
-              // Parse size - it might be stored as display string like "20×30 cm" or as ID
-              let sizeData;
-              if (item.size.includes('×') || item.size.includes('x')) {
-                // Parse dimensions from string like "20×30 cm"
-                const match = item.size.match(/(\d+)\s*[×x]\s*(\d+)/);
-                if (match) {
-                  const width = parseInt(match[1]);
-                  const height = parseInt(match[2]);
-                  // Find size by dimensions
-                  sizeData = sizes.find(s => s.width === width && s.height === height);
-                }
-              } else {
-                // Try to find by ID
-                sizeData = sizes.find(s => s.id === item.size);
-              }
-              
-              // Get painting to check orientation (with safety check)
-              const painting = paintings?.find(p => p.id === item.paintingId);
-              // For admin, if painting is landscape, reverse the dimensions to show what production needs
-              const shouldReverse = painting?.orientation === 'landscape';
-              const sizeDisplay = sizeData 
-                ? shouldReverse 
-                  ? `${sizeData.height}×${sizeData.width} cm` // Reversed for landscape in admin
-                  : `${sizeData.width}×${sizeData.height} cm`
-                : item.size;
-              
-              // Use the price from the order item - if it's 0, recalculate from size data
-              let displayPrice = item.price;
-              
-              // If item.price is 0 or not set, calculate from size data
-              if (displayPrice === 0 && sizeData) {
-                // Base size price with discount
-                const baseSizePrice = sizeData.price;
-                const sizeDiscount = sizeData.discount || 0;
-                displayPrice = sizeDiscount > 0 
-                  ? baseSizePrice * (1 - sizeDiscount / 100)
-                  : baseSizePrice;
-              }
-              
-              // Try to get discount info for display purposes
-              const sizeDiscount = sizeData?.discount || 0;
-              
-              // Check if frame is "Fara Rama"
-              const frameTypeData = item.frameType ? getFrameTypeById(item.frameType) : null;
-              const hasActualFrame = frameTypeData && frameTypeData.name !== 'Fara Rama';
-              
-              return (
-                <div key={index} className="bg-purple-50 border border-purple-200 rounded-lg p-3 w-[500px]">
-                  {/* Title at top */}
-                  <div className="mb-3">
-                    <p className="text-sm text-gray-900 font-medium">{item.paintingTitle}</p>
-                  </div>
                   
-                  {/* Show discount badge if size has discount */}
-                  {sizeDiscount > 0 && (
-                    <div className="mb-3">
-                      <span className="inline-flex items-center px-2 py-1 bg-red-100 text-red-700 text-xs font-medium rounded">
-                        Discount {sizeDiscount}% aplicat
-                      </span>
-                    </div>
-                  )}
-                  
-                  {/* Image and Info Section */}
-                  {item.printType && (
-                    <>
-                      <div className="flex gap-3 mb-3">
-                        {/* Image inside tile */}
-                        <div className="w-20 h-20 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
-                          <img 
-                            src={item.image} 
-                            alt={item.paintingTitle}
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                        
-                        {/* Info Section */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center space-x-2 mb-2">
-                            <FileText className="w-4 h-4 text-purple-600" />
-                            <span className="text-xs text-purple-600 font-medium">Tip Print</span>
-                          </div>
-                          <div className="space-y-1.5">
-                            <div className="flex items-center justify-between">
-                              <p className="text-xs text-gray-600">Print Type:</p>
-                              <p className="text-sm text-gray-900 font-medium">{item.printType}</p>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <p className="text-xs text-gray-600">Dimensiune:</p>
-                              <p className="text-sm text-gray-900 font-medium">{sizeDisplay}</p>
-                            </div>
-                            <div className="flex items-center justify-between pt-1.5 border-t border-purple-200">
-                              <p className="text-xs text-gray-600">Preț:</p>
-                              <p className="text-sm text-purple-600 font-bold">{displayPrice.toFixed(2)} lei</p>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      {/* Buttons inside tile */}
-                      <div className="flex gap-2 pt-2 border-t border-purple-200">
-                        <button
-                          onClick={async () => {
-                            // Check if this is an Unsplash image
-                            const painting = paintings?.find(p => p.id === item.paintingId);
-                            if (painting?.unsplashData) {
-                              // Use Unsplash service to download highest quality
-                              try {
-                                const { unsplashService } = await import('../../services/unsplashService');
-                                await unsplashService.downloadImage(
-                                  painting.unsplashData.id,
-                                  `${item.paintingTitle}-${painting.unsplashData.id}.jpg`
-                                );
-                              } catch (error) {
-                                console.error('Error downloading Unsplash image:', error);
-                                // Fallback to regular download
-                                downloadImage(item.image, `${item.paintingTitle}-${painting.unsplashData.id}.jpg`);
-                              }
-                            } else {
-                              // Regular download for non-Unsplash images
-                              downloadImage(item.image, `${item.paintingTitle}-${item.paintingId}.jpg`);
-                            }
-                          }}
-                          className="flex-1 px-3 py-1.5 bg-[#86C2FF] text-white rounded-md hover:bg-[#6BADEF] transition-colors text-xs flex items-center justify-center space-x-1"
-                          title="Descarcă imaginea tabloului"
-                        >
-                          <Download className="w-3 h-3" />
-                          <span>Descarcă Imagine</span>
-                        </button>
-                        {item.paintingId && (() => {
-                          const painting = paintings?.find(p => p.id === item.paintingId);
-                          
-                          // Check if this is an Unsplash image by ID format
-                          const isUnsplashImage = item.paintingId.startsWith('unsplash-');
-                          
-                          if (isUnsplashImage) {
-                            // Extract Unsplash ID from painting ID (format: unsplash-XXXXX)
-                            const unsplashId = item.paintingId.replace('unsplash-', '');
-                            const unsplashUrl = `https://unsplash.com/photos/${unsplashId}`;
-                            
-                            // Link to Unsplash page
-                            return (
-                              <a
-                                href={unsplashUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex-1 px-3 py-1.5 bg-[#86C2FF] text-white rounded-md hover:bg-[#6BADEF] transition-colors text-xs flex items-center justify-center space-x-1"
-                              >
-                                <ExternalLink className="w-3 h-3" />
-                                <span>Vezi în Magazin</span>
-                              </a>
-                            );
-                          }
-                          
-                          // Regular product link
-                          const slug = item.paintingTitle
-                            .toLowerCase()
-                            .replace(/[^a-z0-9\s-]/g, '')
-                            .replace(/\s+/g, '-')
-                            .replace(/-+/g, '-')
-                            .trim();
-                          
-                          return (
-                            <Link
-                              to={`/produs/${item.paintingId}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex-1 px-3 py-1.5 bg-[#86C2FF] text-white rounded-md hover:bg-[#6BADEF] transition-colors text-xs flex items-center justify-center space-x-1"
-                            >
-                              <ExternalLink className="w-3 h-3" />
-                              <span>Vezi în Magazin</span>
-                            </Link>
-                          );
-                        })()}
-                      </div>
-                    </>
-                  )}
-                </div>
-              );
-            }
-          })}
-        </div>
-
-        {/* Total */}
-        <div className="mt-6 pt-4 border-t border-gray-200 flex justify-end">
-          <div className="text-right">
-            <p className="text-sm text-gray-600 mb-1">Total Produse:</p>
-            <p className="text-2xl text-yellow-600">{order.totalPrice.toFixed(2)} lei</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Notes */}
-      <div className="bg-white rounded-lg border-2 border-gray-200 p-6 mb-6" id="notes-section">
-        <h3 className="text-lg text-gray-900 mb-4 flex items-center space-x-2">
-          <MessageSquare className="w-5 h-5 text-yellow-600" />
-          <span>Notițe Interne</span>
-          {(order.orderNotes?.filter(n => n.status === 'open').length || 0) > 0 && (
-            <span className="px-2 py-1 bg-blue-500 text-white rounded-full text-xs">
-              {order.orderNotes.filter(n => n.status === 'open').length} active
-            </span>
-          )}
-        </h3>
-
-        {/* Add New Note */}
-        <div className="mb-6">
-          <textarea
-            value={newNoteText}
-            onChange={(e) => setNewNoteText(e.target.value)}
-            className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-yellow-500 focus:outline-none resize-none"
-            rows={3}
-            placeholder="Scrie o notă nouă despre această comandă..."
-          />
-          <button
-            onClick={async () => {
-              if (newNoteText.trim()) {
-                await addOrderNote(order.id, newNoteText.trim());
-                setNewNoteText('');
-              }
-            }}
-            disabled={!newNoteText.trim()}
-            className="mt-2 px-6 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center space-x-2"
-          >
-            <MessageSquare className="w-4 h-4" />
-            <span>Adaugă Notă</span>
-          </button>
-        </div>
-
-        {/* Notes List */}
-        {order.orderNotes && order.orderNotes.length > 0 ? (
-          <div className="space-y-3">
-            {order.orderNotes
-              .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-              .map(note => (
-              <div 
-                key={note.id} 
-                className={`border-2 rounded-lg p-4 ${
-                  note.status === 'closed' 
-                    ? 'border-gray-300 bg-gray-50' 
-                    : note.isRead 
-                      ? 'border-blue-200 bg-blue-50' 
-                      : 'border-blue-400 bg-blue-100'
-                }`}
-              >
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-2 mb-1">
-                      <span className="text-sm text-gray-900">{note.createdBy}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${
-                        note.createdByRole === 'full-admin' ? 'bg-red-100 text-red-700' :
-                        note.createdByRole === 'account-manager' ? 'bg-blue-100 text-blue-700' :
-                        'bg-green-100 text-green-700'
-                      }`}>
-                        {note.createdByRole === 'full-admin' ? 'Admin' :
-                         note.createdByRole === 'account-manager' ? 'Account' :
-                         'Production'}
-                      </span>
-                      {!note.isRead && note.status === 'open' && (
-                        <span className="w-2 h-2 bg-blue-500 rounded-full" title="Necitit"></span>
-                      )}
-                    </div>
-                    <p className="text-xs text-gray-500">
-                      {new Date(note.createdAt).toLocaleString('ro-RO')}
-                    </p>
-                  </div>
-                  
-                  {/* Actions */}
-                  {note.status === 'open' && (
-                    <div className="flex items-center space-x-2">
-                      {!note.isRead && (
-                        <button
-                          onClick={() => markNoteAsRead(order.id, note.id)}
-                          className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors text-xs flex items-center space-x-1"
-                          title="Marchează ca citit"
-                        >
-                          <Check className="w-3 h-3" />
-                          <span>Citit</span>
-                        </button>
-                      )}
-                      <button
-                        onClick={() => closeOrderNote(order.id, note.id)}
-                        className="px-3 py-1 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors text-xs flex items-center space-x-1"
-                        title="Închide nota"
+                  <div className="flex gap-2 mt-3 pt-3 border-t border-purple-200">
+                    <button
+                      onClick={() => downloadImage(item.image, `painting-${index}.jpg`)}
+                      className="flex-1 px-3 py-1.5 bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors text-xs flex items-center justify-center gap-1"
+                    >
+                      <Download className="w-3 h-3" />
+                      Descarcă Imagine
+                    </button>
+                    {item.unsplashUrl ? (
+                      <a
+                        href={item.unsplashUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded hover:bg-gray-50 transition-colors text-xs flex items-center justify-center gap-1"
                       >
-                        <XCircle className="w-3 h-3" />
-                        <span>Închide</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-                
-                <p className="text-sm text-gray-900 whitespace-pre-wrap">{note.text}</p>
-                
-                {note.status === 'closed' && (
-                  <div className="mt-2 pt-2 border-t border-gray-300">
-                    <p className="text-xs text-gray-500">
-                      Închis de {note.closedBy} la {new Date(note.closedAt!).toLocaleString('ro-RO')}
-                    </p>
+                        <ExternalLink className="w-3 h-3" />
+                        Vezi Original
+                      </a>
+                    ) : (
+                      <a
+                        href={item.image}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded hover:bg-gray-50 transition-colors text-xs flex items-center justify-center gap-1"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        Vezi Original
+                      </a>
+                    )}
                   </div>
-                )}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-gray-500 text-center py-4">Nu există notițe pentru această comandă.</p>
-        )}
-      </div>
-
-      {/* Status History */}
-      <div className="bg-white rounded-lg border-2 border-gray-200 p-6">
-        <h3 className="text-lg text-gray-900 mb-4 flex items-center space-x-2">
-          <History className="w-5 h-5 text-yellow-600" />
-          <span>Istoric Status</span>
-        </h3>
-        <div className="space-y-4">
-          {order.statusHistory.map((history, index) => (
-            <div key={index} className="flex items-start space-x-4 pb-4 border-b border-gray-200 last:border-b-0">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${getStatusColor(history.status)}`}>
-                <span className="text-xs">{index + 1}</span>
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center justify-between mb-1">
-                  <span className={`px-3 py-1 rounded-full text-xs ${getStatusColor(history.status)}`}>
-                    {getStatusLabel(history.status)}
-                  </span>
-                  <span className="text-xs text-gray-500">
-                    {new Date(history.timestamp).toLocaleString('ro-RO')}
-                  </span>
                 </div>
-                <p className="text-sm text-gray-900 mb-1">{history.reason}</p>
-                <p className="text-xs text-gray-600">Modificat de: {history.changedBy}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+              );
+            })}
+          </div>
 
-      {/* Status Change Modal */}
-      {showStatusModal && (
-        <div 
-          className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              setShowStatusModal(false);
-            }
-          }}
-        >
-          <div 
-            className="bg-white rounded-lg p-6 max-w-md w-full"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-xl text-gray-900 mb-4">Schimbă Status Comandă</h3>
-            
-            <div className="mb-4">
-              <label className="block text-sm text-gray-700 mb-2">Status Nou</label>
-              <select
-                value={newStatus}
-                onChange={(e) => setNewStatus(e.target.value as OrderStatus)}
-                className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-blue-500 focus:outline-none text-gray-900"
-              >
-                {availableStatuses.map(status => (
-                  <option key={status} value={status}>{getStatusLabel(status)}</option>
-                ))}
-              </select>
-            </div>
-
-            {(newStatus === 'queue' || newStatus === 'returned' || newStatus === 'closed') && (
-              <div className="mb-4">
-                <label className="block text-sm text-gray-700 mb-2">
-                  Motiv <span className="text-red-500">*</span>
-                </label>
-                <textarea
-                  value={statusReason}
-                  onChange={(e) => setStatusReason(e.target.value)}
-                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-blue-500 focus:outline-none resize-none text-gray-900"
-                  rows={4}
-                  placeholder="Introduceți motivul schimbării statusului..."
-                  autoFocus
-                />
-              </div>
-            )}
-
-            <div className="flex space-x-3">
-              <button
-                onClick={() => {
-                  setShowStatusModal(false);
-                  setNewStatus(null);
-                  setStatusReason('');
-                }}
-                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-              >
-                Anulează
-              </button>
-              <button
-                onClick={() => {
-                  handleStatusChange(statusReason.trim());
-                  setStatusReason('');
-                }}
-                className="flex-1 px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors"
-              >
-                Confirmă
-              </button>
-            </div>
+          {/* Total */}
+          <div className="flex justify-end items-center gap-4 mt-6 pt-4 border-t border-gray-200">
+            <span className="text-sm text-gray-600">Total Produse:</span>
+            <span className="text-xl font-bold text-blue-500">{order.totalPrice.toFixed(2)} lei</span>
           </div>
         </div>
-      )}
+
+        {/* Internal Notes */}
+        <div className="bg-white rounded-lg border border-gray-200 p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <FileText className="w-5 h-5 text-blue-500" />
+            <h3 className="text-base font-medium text-gray-900">Notițe Interne</h3>
+          </div>
+          <textarea
+            value={internalNotes}
+            onChange={(e) => setInternalNotes(e.target.value)}
+            placeholder="Scrie o notă pentru această comandă..."
+            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none text-sm"
+            rows={4}
+          />
+          <div className="mt-4">
+            <button
+              onClick={saveNotes}
+              className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm"
+            >
+              Actuați Notă
+            </button>
+          </div>
+        </div>
+      </div>
 
       {/* Preview Modal */}
-      {showPreviewModal && previewImage && (
-        <div 
-          className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"
-          onClick={() => setShowPreviewModal(false)}
-        >
-          <div 
-            className="bg-white rounded-lg p-6 max-w-4xl w-full max-h-[90vh] overflow-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-xl text-gray-900">Previzualizare Cropping</h3>
-                <p className="text-sm text-gray-600">Zona selectată de client pentru printare</p>
-              </div>
-              <button
-                onClick={() => {
-                  setShowPreviewModal(false);
-                  setPreviewImage(null);
-                }}
-                className="p-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-                title="Închide"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="flex justify-center bg-gray-50 rounded-lg p-4">
-              <img
-                src={previewImage}
-                alt="Previzualizare Cropping"
-                className="max-w-full max-h-[70vh] rounded-lg shadow-lg"
-              />
-            </div>
-
-            <div className="mt-4 text-center">
-              <p className="text-xs text-gray-500">Aceasta este previzualizarea zonei cropate. Pentru printare, descarcă imaginea originală.</p>
-            </div>
+      {showPreviewModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="relative max-w-4xl w-full">
+            <button
+              onClick={() => setShowPreviewModal(false)}
+              className="absolute -top-10 right-0 text-white hover:text-gray-300 transition-colors"
+            >
+              <X className="w-8 h-8" />
+            </button>
+            <img 
+              src={previewImage} 
+              alt="Preview" 
+              className="w-full h-auto rounded-lg"
+            />
           </div>
         </div>
       )}
     </AdminLayout>
   );
-};
+}

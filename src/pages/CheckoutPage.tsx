@@ -193,21 +193,16 @@ export const CheckoutPage = () => {
             itemPrice = sizeData.discount > 0
               ? sizeData.price * (1 - sizeData.discount / 100)
               : sizeData.price;
+            
+            // Add frame price if applicable
+            if (item.frameType && sizeData?.framePrices && sizeData.framePrices[item.frameType]) {
+              const framePricing = sizeData.framePrices[item.frameType];
+              const framePrice = framePricing.price * (1 - framePricing.discount / 100);
+              itemPrice += framePrice;
+            }
           } else {
             // Fallback to base price
             itemPrice = item.product.price || 0;
-          }
-          
-          // Add frame price if applicable
-          if (item.frameType && sizeData?.framePrices && sizeData.framePrices[item.frameType]) {
-            const framePricing = sizeData.framePrices[item.frameType];
-            const framePrice = framePricing.price * (1 - framePricing.discount / 100);
-            itemPrice += framePrice;
-          } else {
-            // Fallback: Check for old data structure
-            itemPrice = item.selectedDimension
-              ? item.product.dimensions?.find(d => d.size === item.selectedDimension)?.price || item.product.price
-              : item.product.price;
           }
         }
 
@@ -227,7 +222,7 @@ export const CheckoutPage = () => {
             croppedImage: item.customization.croppedImageUrl || '', // From Supabase Storage
             size: formattedSize,
             orientation: item.customization.orientation || 'portrait',
-            price: totalItemPrice,
+            price: itemPrice, // Individual item price, not total
             hasCustomImage: true,
           };
         } else {
@@ -242,9 +237,10 @@ export const CheckoutPage = () => {
             image: item.product.image,
             size: formattedSize,
             quantity: item.quantity,
-            price: totalItemPrice,
+            price: itemPrice, // Individual item price, not total
             printType: item.printType, // Include print type from cart
             frameType: item.frameType, // Include frame type from cart
+            unsplashUrl: item.product.unsplashData?.imageUrl, // Add Unsplash photo page URL (not photographer URL)
           };
         }
       });
@@ -268,14 +264,6 @@ export const CheckoutPage = () => {
           
           const gatewayData = await gatewayResponse.json();
           const activeGateway = gatewayData.settings?.activeGateway || 'netopia';
-
-          console.log(`💳 Active payment gateway: ${activeGateway}`);
-          console.log('💳 Initiating payment...');
-          console.log('📝 Payment details:', {
-            amount: totalPrice,
-            customerEmail: formData.email,
-            customerName: `${formData.firstName} ${formData.lastName}`,
-          });
 
           // For card payment, we need to create a temporary order ID
           // Generate a unique order number for payment
@@ -327,33 +315,17 @@ export const CheckoutPage = () => {
             }
           );
 
-          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-          console.log('📥 PAYMENT API RESPONSE');
-          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-          console.log('Response status:', paymentResponse.status);
-          console.log('Response statusText:', paymentResponse.statusText);
-          console.log('Response ok:', paymentResponse.ok);
-          
           if (!paymentResponse.ok) {
             const errorText = await paymentResponse.text();
-            console.error('❌ HTTP ERROR RESPONSE:');
-            console.error('Status:', paymentResponse.status);
-            console.error('Response body:', errorText);
-            console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
             throw new Error(`HTTP ${paymentResponse.status}: ${errorText}`);
           }
 
           const paymentData = await paymentResponse.json();
-          console.log('✅ Success response data:', JSON.stringify(paymentData, null, 2));
-          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
           // Get redirect URL (different property names for different gateways)
           const redirectUrl = paymentData.redirectUrl || paymentData.paymentUrl;
 
           if (paymentData.success && redirectUrl) {
-            console.log(`✅ Payment initialized successfully, redirecting to ${activeGateway}...`);
-            console.log('🔗 Redirect URL:', redirectUrl);
-            
             // Save order data to sessionStorage so we can create it after payment success
             sessionStorage.setItem('pendingOrderData', JSON.stringify({
               clientName: `${formData.firstName} ${formData.lastName}`,
@@ -384,25 +356,12 @@ export const CheckoutPage = () => {
             
             return; // Don't continue to confirmation step
           } else {
-            console.error('❌ Payment initialization failed:', paymentData.error || 'Unknown error');
             throw new Error(paymentData.error || 'Failed to initialize payment');
           }
         } catch (paymentError) {
-          console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-          console.error('❌ CHECKOUT PAYMENT ERROR');
-          console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-          console.error('Error type:', paymentError?.constructor?.name);
-          console.error('Error object:', paymentError);
-          console.error('Error message:', paymentError instanceof Error ? paymentError.message : String(paymentError));
-          if (paymentError instanceof Error && paymentError.stack) {
-            console.error('Stack trace:', paymentError.stack);
-          }
-          console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-          
           const errorMessage = paymentError instanceof Error ? paymentError.message : 'Unknown error';
           
           // FALLBACK: Switch to cash on delivery if card payment fails
-          console.log('⚠️ Card payment failed, falling back to cash on delivery...');
           toast.error(`Plata cu cardul nu este disponibilă momentan: ${errorMessage}\n\nComanda va fi procesată cu plată la livrare.`);
           
           // Update payment method to cash
@@ -474,8 +433,33 @@ export const CheckoutPage = () => {
 
         await Promise.race([emailPromise, emailTimeoutPromise]);
       } catch (emailError) {
-        console.error('⚠️ Failed to send confirmation email (non-critical):', emailError);
         // Don't block order completion if email fails
+      }
+
+      // Generate invoice for the order
+      try {
+        await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/invoice/generate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${publicAnonKey}`,
+          },
+          body: JSON.stringify({
+            orderNumber: orderNumber,
+            orderDate: new Date().toISOString(),
+            customerName: `${formData.firstName} ${formData.lastName}`,
+            customerEmail: formData.email,
+            customerPhone: formData.phone,
+            customerAddress: formData.address,
+            customerCity: formData.city,
+            customerCounty: formData.county,
+            items: canvasItems,
+            total: totalPrice,
+            deliveryPrice,
+          }),
+        });
+      } catch (invoiceError) {
+        // Don't block order completion if invoice generation fails
       }
 
       setCurrentStep('confirmation');
@@ -485,8 +469,6 @@ export const CheckoutPage = () => {
       window.scrollTo({ top: 0, behavior: 'smooth' });
       setConfirmedOrderNumber(orderNumber);
     } catch (error) {
-      console.error('❌ Error placing order:', error);
-      
       // Check if it's a quota/bandwidth error
       const errorMessage = (error as Error).message.toLowerCase();
       if (errorMessage.includes('quota') || errorMessage.includes('bandwidth') || 
@@ -1012,16 +994,43 @@ export const CheckoutPage = () => {
               <h3 className="text-gray-900 mb-4">Sumar Comandă</h3>
 
               <div className="space-y-3 mb-4">
-                {cart.map(item => (
-                  <div key={item.id} className="flex justify-between text-sm">
-                    <span className="text-gray-700">
-                      {item.product.title} × {item.quantity}
-                    </span>
-                    <span className="text-gray-900">
-                      {((item.customization?.price || item.product.price) * item.quantity).toFixed(2)} lei
-                    </span>
-                  </div>
-                ))}
+                {cart.map(item => {
+                  // Calculate item price the same way as in order creation
+                  let itemPrice = 0;
+                  if (item.customization) {
+                    itemPrice = item.customization.price;
+                  } else {
+                    // For paintings, find price by sizeId
+                    const sizeData = sizes.find(s => s.id === item.selectedDimension);
+                    if (sizeData) {
+                      // Calculate with discount
+                      itemPrice = sizeData.discount > 0
+                        ? sizeData.price * (1 - sizeData.discount / 100)
+                        : sizeData.price;
+                      
+                      // Add frame price if applicable
+                      if (item.frameType && sizeData.framePrices && sizeData.framePrices[item.frameType]) {
+                        const framePricing = sizeData.framePrices[item.frameType];
+                        const framePrice = framePricing.price * (1 - framePricing.discount / 100);
+                        itemPrice += framePrice;
+                      }
+                    } else {
+                      // Fallback to base price
+                      itemPrice = item.product.price || 0;
+                    }
+                  }
+                  
+                  return (
+                    <div key={item.id} className="flex justify-between text-sm">
+                      <span className="text-gray-700">
+                        {item.product.title} × {item.quantity}
+                      </span>
+                      <span className="text-gray-900">
+                        {(itemPrice * item.quantity).toFixed(2)} lei
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
 
               <div className="border-t border-gray-200 pt-4 space-y-2">

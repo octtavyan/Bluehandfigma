@@ -1,9 +1,14 @@
 // BlueHand Canvas - Supabase Edge Function Server
 // Handles email sending with Resend API and payment gateways (Netopia + Revolut)
-// Last updated: 2026-01-29 - Added Revolut Business payment gateway
-// Server Version: 2.3.0 - Added Revolut Business integration with gateway toggle
+// Last updated: 2026-01-30 - Added admin panel endpoints (orders, paintings, sizes, frame-types, clients)
+// Server Version: 2.3.4 - Added GET endpoints for admin panel data retrieval
 // 
 // CRITICAL FIXES:
+// - Fixed VAT rate from 21% to 19% for Romanian standard rate
+// - Fixed PDF table to include TVA column with proper calculations
+// - Fixed unit price calculation (now shows price without VAT ÷ quantity)
+// - Fixed Cloudinary PDF upload with resource_type: 'raw' parameter
+// - Fixed Cloudinary settings key from 'cloudinary:settings' to 'cloudinary_settings'
 // - Hardcoded "RON" directly in XML attributes (no variable interpolation)
 // - Added email format validation for Resend API
 // - Added missing cart save/load endpoints
@@ -34,10 +39,12 @@ app.get("/make-server-bbc0c500/health", (c) => {
   return c.json({ 
     status: "ok",
     message: "BlueHand Canvas API is running",
-    version: "2.3.0",
-    lastUpdate: "2026-01-29 - Added Revolut Business payment gateway with toggle",
+    version: "2.3.4",
+    lastUpdate: "2026-01-30 - Added admin panel endpoints for orders, paintings, sizes, frame-types, clients",
     timestamp: new Date().toISOString(),
-    paymentEndpointStatus: "All Netopia credentials now stored in database - configure in Admin Settings"
+    paymentEndpointStatus: "All Netopia credentials now stored in database - configure in Admin Settings",
+    invoiceStatus: "Debugging: Added logging for item data, support for price/total fields, multi-line wrapping",
+    adminEndpoints: "✅ Orders, Paintings, Sizes, FrameTypes, Clients - All endpoints active"
   });
 });
 
@@ -88,7 +95,7 @@ app.post("/make-server-bbc0c500/netopia/test-xml", async (c) => {
     
     return c.json({
       success: true,
-      version: "2.1.5",
+      version: "2.3.3",
       xml: testXml,
       validation: {
         orderAttribute: hasOrderAttribute ? '✅ Present' : '❌ MISSING',
@@ -747,6 +754,11 @@ app.post("/make-server-bbc0c500/email/test", async (c) => {
         subject: 'Test Email - BlueHand Canvas',
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <!-- Logo Header -->
+            <div style="text-align: center; margin-bottom: 30px; padding: 20px 0; border-bottom: 2px solid #f0f0f0;">
+              <img src="https://res.cloudinary.com/ddz7n1zgz/image/upload/v1738225953/logo_aywf8z.png" alt="BlueHand Canvas" style="max-width: 200px; height: auto;" />
+            </div>
+            
             <h1 style="color: #7B93FF; margin-bottom: 20px;">Test Email</h1>
             <p style="color: #333; font-size: 16px; line-height: 1.5;">
               Acesta este un email de test de la sistemul BlueHand Canvas.
@@ -914,8 +926,9 @@ app.post("/make-server-bbc0c500/email/send-order-confirmation", async (c) => {
           </head>
           <body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f5f5f5;">
             <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff;">
-              <!-- Header -->
+              <!-- Header with Logo -->
               <div style="background-color: #7B93FF; padding: 30px 20px; text-align: center;">
+                <img src="https://res.cloudinary.com/ddz7n1zgz/image/upload/v1738225953/logo_aywf8z.png" alt="BlueHand Canvas" style="max-width: 180px; height: auto; margin-bottom: 10px;" />
                 <h1 style="color: #ffffff; margin: 0; font-size: 28px;">BlueHand Canvas</h1>
               </div>
               
@@ -1058,7 +1071,8 @@ app.post("/make-server-bbc0c500/email/send-shipped-confirmation", async (c) => {
     const { 
       orderNumber, 
       customerName, 
-      customerEmail
+      customerEmail,
+      invoiceUrl // Invoice URL passed from frontend after generation
     } = body;
     
     if (!customerEmail || !orderNumber) {
@@ -1100,17 +1114,40 @@ app.post("/make-server-bbc0c500/email/send-shipped-confirmation", async (c) => {
 
     console.log(`📧 Sending shipped confirmation email from: ${fromName} <${fromEmail}>`);
 
-    // Send email via Resend API
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: `${fromName} <${fromEmail}>`,
-        to: [customerEmail],
-        subject: `Comanda ta #${orderNumber} a fost expediată! 📦 - BlueHand Canvas`,
+    // Get invoice from KV if not provided (fallback)
+    let finalInvoiceUrl = invoiceUrl;
+    if (!finalInvoiceUrl) {
+      const invoice = await kv.get<{
+        invoiceNumber: string;
+        cloudinaryUrl?: string;
+        html?: string;
+      }>(`invoice:${orderNumber}`);
+      
+      if (invoice?.cloudinaryUrl) {
+        finalInvoiceUrl = invoice.cloudinaryUrl;
+      }
+    }
+    
+    // Build invoice section for email body
+    let invoiceSection = '';
+    if (finalInvoiceUrl) {
+      invoiceSection = `
+                <!-- Invoice Download -->
+                <div style="background-color: #f0f4ff; border-left: 4px solid #7B93FF; padding: 15px; margin: 20px 0;">
+                  <p style="margin: 0; color: #333; font-size: 14px;">
+                    <strong>📄 Factura ta este disponibilă:</strong><br>
+                    <a href="${finalInvoiceUrl}" style="color: #7B93FF; text-decoration: none; font-weight: bold; display: inline-block; margin-top: 10px; background-color: white; padding: 10px 20px; border-radius: 5px; border: 2px solid #7B93FF;">
+                      📥 Descarcă Factura PDF
+                    </a>
+                  </p>
+                </div>`;
+    }
+    
+    // Prepare email body
+    const emailBody: any = {
+      from: `${fromName} <${fromEmail}>`,
+      to: [customerEmail],
+      subject: `Comanda ta #${orderNumber} a fost expediată! 📦 - BlueHand Canvas`,
         html: `
           <!DOCTYPE html>
           <html>
@@ -1120,6 +1157,12 @@ app.post("/make-server-bbc0c500/email/send-shipped-confirmation", async (c) => {
           </head>
           <body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f5f5f5;">
             <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff;">
+              
+              <!-- Header with Logo -->
+              <div style="background-color: #10b981; padding: 30px 20px; text-align: center;">
+                <img src="https://res.cloudinary.com/ddz7n1zgz/image/upload/v1738225953/logo_aywf8z.png" alt="BlueHand Canvas" style="max-width: 180px; height: auto; margin-bottom: 10px;" />
+                <h1 style="color: #ffffff; margin: 0; font-size: 28px;">Comanda Expediată! 📦</h1>
+              </div>
               
               <!-- Content -->
               <div style="padding: 40px 20px;">
@@ -1137,6 +1180,8 @@ app.post("/make-server-bbc0c500/email/send-shipped-confirmation", async (c) => {
                     <strong>Status:</strong> <span style="color: #10b981; font-weight: bold;">✓ Expediată (În tranzit)</span>
                   </p>
                 </div>
+                
+                ${invoiceSection}
                 
                 <!-- Delivery Info -->
                 <div style="background-color: #fffbeb; border-left: 4px solid #fbbf24; padding: 15px; margin: 20px 0;">
@@ -1180,8 +1225,17 @@ app.post("/make-server-bbc0c500/email/send-shipped-confirmation", async (c) => {
             </div>
           </body>
           </html>
-        `,
-      }),
+        `
+    };
+
+    // Send email via Resend API
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(emailBody),
     });
 
     const data = await response.json();
@@ -1207,6 +1261,651 @@ app.post("/make-server-bbc0c500/email/send-shipped-confirmation", async (c) => {
       success: false, 
       error: error instanceof Error ? error.message : 'Unknown error occurred' 
     }, 500);
+  }
+});
+
+// ===== INVOICE GENERATION =====
+
+// Generate invoice PDF for an order
+app.post("/make-server-bbc0c500/invoice/generate", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { 
+      orderNumber,
+      orderDate,
+      customerName,
+      customerEmail,
+      customerPhone,
+      customerAddress,
+      customerCity,
+      customerCounty,
+      customerPostalCode,
+      items,
+      total,
+      deliveryPrice,
+      // Optional billing fields (for juridica)
+      billingName,
+      billingCUI,
+      billingRegCom,
+      billingAddress
+    } = body;
+    
+    if (!orderNumber || !customerName || !items) {
+      return c.json({ success: false, error: 'Missing required invoice data' }, 400);
+    }
+    
+    console.log(`📄 Generating invoice for order ${orderNumber}...`);
+    console.log(`📋 Customer: ${customerName}, Billing: ${billingName || 'N/A'}`);
+    console.log(`📋 Items received:`, JSON.stringify(items, null, 2));
+    console.log(`📋 Total: ${total}, Delivery: ${deliveryPrice || 0}`);
+    
+    // Log each item's price to diagnose the issue
+    items.forEach((item: any, index: number) => {
+      console.log(`📦 Item ${index}: price=${item.price}, total=${item.total}, size=${item.size}, name=${item.paintingTitle || item.title}`);
+    });
+    
+    // Fetch sizes from CMS to get accurate pricing
+    console.log('🔍 Fetching sizes from CMS for price lookup...');
+    const sizesData = await kv.getByPrefix('size:') || [];
+    const sizesMap = new Map(sizesData.map((s: any) => [s.name, s.price]));
+    console.log(`📏 Loaded ${sizesData.length} sizes:`, sizesData.map((s: any) => `${s.name}=${s.price}`).join(', '));
+    
+    // Enrich items with prices from sizes table
+    const enrichedItems = items.map((item: any, index: number) => {
+      const itemSize = item.size || '';
+      let finalPrice = parseFloat(item.price || item.total || 0);
+      
+      console.log(`🔍 Item ${index}: size="${itemSize}", storedPrice=${finalPrice}`);
+      
+      // If price is missing or 0, look it up from sizes table
+      if (!finalPrice || finalPrice === 0) {
+        const sizePrice = sizesMap.get(itemSize);
+        console.log(`   → Looking up "${itemSize}" in sizes map... found: ${sizePrice || 'NOT FOUND'}`);
+        if (sizePrice) {
+          console.log(`   ✅ Using CMS price: ${sizePrice} lei`);
+          finalPrice = sizePrice;
+        } else {
+          console.log(`   ⚠️ Size "${itemSize}" not found in CMS, available sizes:`, Array.from(sizesMap.keys()));
+        }
+      } else {
+        console.log(`   ✓ Using stored price: ${finalPrice} lei`);
+      }
+      
+      return {
+        ...item,
+        price: finalPrice
+      };
+    });
+    
+    console.log('📋 Items after price enrichment:', enrichedItems.map((i: any) => `${i.size}=${i.price}`).join(', '));
+    
+    // Use billing info if available, otherwise use customer info
+    const clientName = billingName || customerName;
+    const clientAddress = billingAddress || customerAddress;
+    
+    // Calculate VAT (21%) - reverse calculation
+    // If total = 100 RON, then: base = 100/1.21 = 82.64, VAT = 17.36
+    const VAT_RATE = 0.21;
+    const totalAmount = parseFloat(total);
+    const totalWithoutVAT = totalAmount / (1 + VAT_RATE);
+    const vatAmount = totalAmount - totalWithoutVAT;
+    
+    // Calculate delivery VAT
+    const deliveryAmount = parseFloat(deliveryPrice || 0);
+    const deliveryWithoutVAT = deliveryAmount / (1 + VAT_RATE);
+    const deliveryVATAmount = deliveryAmount - deliveryWithoutVAT;
+    
+    // Generate invoice number (format: TINY XXX)
+    const invoiceNumber = `TINY ${orderNumber.replace('#', '')}`;
+    
+    // Format dates
+    const issueDate = orderDate ? new Date(orderDate).toLocaleDateString('ro-RO') : new Date().toLocaleDateString('ro-RO');
+    const dueDate = new Date(new Date(orderDate || new Date()).getTime() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('ro-RO');
+    
+    // Build items table HTML
+    let itemsHTML = '';
+    let itemNumber = 1;
+    
+    for (const item of enrichedItems) {
+      const itemTotal = parseFloat(item.price || 0);
+      const itemWithoutVAT = itemTotal / (1 + VAT_RATE);
+      const itemVAT = itemTotal - itemWithoutVAT;
+      const quantity = item.quantity || 1;
+      const unitPrice = itemWithoutVAT / quantity;
+      
+      // Build article description with painting details
+      const articleDesc = `${item.paintingTitle || item.title || 'Tablou Personalizat'} - ${item.size || 'N/A'}${item.orientation ? `, ${item.orientation === 'portrait' ? 'Portrait' : 'Landscape'}` : ''}`;
+      
+      itemsHTML += `
+        <tr>
+          <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">${itemNumber}</td>
+          <td style="padding: 8px; border: 1px solid #ddd;">${articleDesc}</td>
+          <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">BUC</td>
+          <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">${quantity}</td>
+          <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${unitPrice.toFixed(2)}</td>
+          <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${itemWithoutVAT.toFixed(2)}</td>
+          <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${itemVAT.toFixed(2)} (21%)</td>
+          <td style="padding: 8px; border: 1px solid #ddd; text-align: right;"><strong>${itemTotal.toFixed(2)}</strong></td>
+        </tr>
+      `;
+      itemNumber++;
+    }
+    
+    // Add delivery as separate line item if exists
+    if (deliveryAmount > 0) {
+      itemsHTML += `
+        <tr>
+          <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">${itemNumber}</td>
+          <td style="padding: 8px; border: 1px solid #ddd;">Transport și Livrare</td>
+          <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">BUC</td>
+          <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">1</td>
+          <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${deliveryWithoutVAT.toFixed(2)}</td>
+          <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${deliveryWithoutVAT.toFixed(2)}</td>
+          <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${deliveryVATAmount.toFixed(2)} (21%)</td>
+          <td style="padding: 8px; border: 1px solid #ddd; text-align: right;"><strong>${deliveryAmount.toFixed(2)}</strong></td>
+        </tr>
+      `;
+    }
+    
+    // Generate HTML invoice
+    const invoiceHTML = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <style>
+          body { font-family: Arial, sans-serif; font-size: 12px; margin: 40px; }
+          .logo { font-size: 28px; font-weight: bold; color: #3B82F6; margin-bottom: 5px; }
+          .tagline { font-size: 11px; color: #666; margin-bottom: 20px; }
+          .header { display: flex; justify-content: space-between; margin-bottom: 30px; }
+          .invoice-title { font-size: 24px; font-weight: bold; }
+          .invoice-number { font-size: 20px; color: #7B93FF; margin-top: 5px; }
+          .dates { text-align: right; }
+          .section { margin-bottom: 30px; }
+          .section-title { font-weight: bold; margin-bottom: 10px; font-size: 14px; }
+          .company-info { line-height: 1.6; }
+          .table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+          .table th { background-color: #f5f5f5; padding: 10px; border: 1px solid #ddd; font-weight: bold; text-align: left; }
+          .totals { margin-top: 20px; text-align: right; }
+          .total-row { margin: 5px 0; }
+          .total-final { background-color: #7B93FF; color: white; padding: 10px; margin-top: 10px; font-size: 16px; font-weight: bold; }
+          .footer { margin-top: 40px; font-size: 10px; color: #666; line-height: 1.5; }
+          .payment-info { margin-top: 30px; border-top: 2px solid #ddd; padding-top: 20px; }
+        </style>
+      </head>
+      <body>
+        <!-- Logo -->
+        <img src="https://res.cloudinary.com/driv1havv/image/upload/v1769787364/BLUEHAND_logo_kcoulo.png" alt="BlueHand Canvas" style="width: 150px; height: auto; margin-bottom: 10px;" />
+        
+        <!-- Header -->
+        <div class="header">
+          <div>
+            <div class="invoice-title">FACTURA</div>
+            <div class="invoice-number">${invoiceNumber}</div>
+          </div>
+          <div class="dates">
+            <div><strong>Data emitere:</strong> ${issueDate}</div>
+            <div><strong>Data scadenta:</strong> ${dueDate}</div>
+          </div>
+        </div>
+        
+        <!-- Supplier and Client Info -->
+        <div style="display: flex; justify-content: space-between; margin-bottom: 30px;">
+          <div class="section" style="width: 48%;">
+            <div class="section-title">Furnizor</div>
+            <div class="company-info">
+              <strong>TINYPODS S.R.L.</strong><br>
+              CUI: 50508421<br>
+              Reg. Com.: J2024019956002<br>
+              Țara: ROMANIA<br>
+              jud. Ilfov, Localitate: Pantelimon<br>
+              Oras. PANTELIMON, STR. BUSTENI, NR.1, AP.6<br>
+              IBAN: RO21BTRLRONCRT0CU1300801
+            </div>
+          </div>
+          <div class="section" style="width: 48%;">
+            <div class="section-title">Client</div>
+            <div class="company-info">
+              <strong>${(billingName || customerName).toUpperCase()}</strong><br>
+              ${billingCUI ? `CUI: ${billingCUI}<br>` : ''}
+              ${billingRegCom ? `Reg. Com.: ${billingRegCom}<br>` : ''}
+              ${customerEmail ? `Email: ${customerEmail}<br>` : ''}
+              ${customerPhone ? `Telefon: ${customerPhone}<br>` : ''}
+              ${(billingAddress || customerAddress) ? `${billingAddress || customerAddress}<br>` : ''}
+              ${customerCity ? `${customerCity}` : ''}${customerCounty ? `, ${customerCounty}` : ''}${customerPostalCode ? `, ${customerPostalCode}` : ''}<br>
+              ROMANIA
+            </div>
+          </div>
+        </div>
+        
+        <!-- Items Table -->
+        <table class="table">
+          <thead>
+            <tr>
+              <th style="width: 5%; text-align: center;">#</th>
+              <th style="width: 35%;">Articol</th>
+              <th style="width: 8%; text-align: center;">U.M.</th>
+              <th style="width: 8%; text-align: center;">Cant.</th>
+              <th style="width: 11%; text-align: right;">Pret unitar</th>
+              <th style="width: 11%; text-align: right;">Valoare</th>
+              <th style="width: 11%; text-align: right;">TVA</th>
+              <th style="width: 11%; text-align: right;">TOTAL</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemsHTML}
+          </tbody>
+        </table>
+        
+        <!-- Totals -->
+        <div class="totals">
+          <div class="total-row">Total fara TVA: <strong>${totalWithoutVAT.toFixed(2)} RON</strong></div>
+          <div class="total-row">TVA 21%: <strong>${vatAmount.toFixed(2)} RON</strong></div>
+          <div class="total-final">Total: ${totalAmount.toFixed(2)} Lei</div>
+        </div>
+        
+        <!-- Payment Instructions -->
+        <div class="payment-info">
+          <div style="font-weight: bold; margin-bottom: 10px;">Instrucțiuni de plată:</div>
+          <div>IBAN: RO21BTRLRONCRT0CU1300801</div>
+          <div>Beneficiar: TINYPODS S.R.L.</div>
+        </div>
+        
+        <!-- Footer -->
+        <div class="footer">
+          Factura circula fara semnatura si stampila cf. art.V, alin (2) din Ordonanta nr.17/2015 si art. 319 alin (29) din Legea nr. 227/2015 privind Codul fiscal.
+        </div>
+      </body>
+      </html>
+    `;
+    
+    // Generate and upload invoice as PDF to Cloudinary
+    console.log('📤 Generating PDF and uploading to Cloudinary...');
+    let cloudinaryUrl = '';
+    
+    try {
+      // Get Cloudinary settings from database
+      const cloudinarySettings = await kv.get('cloudinary_settings');
+      
+      if (!cloudinarySettings || !cloudinarySettings.cloudName || !cloudinarySettings.uploadPreset) {
+        throw new Error('Cloudinary not configured. Please configure in Admin Settings.');
+      }
+      
+      console.log('✅ Cloudinary configured:', cloudinarySettings.cloudName);
+      
+      // Import PDF generation library (using jsPDF which works in Deno)
+      console.log('🔄 Generating PDF from invoice data...');
+      const { jsPDF } = await import('npm:jspdf@2.5.1');
+      
+      // Create new PDF document
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+      
+      // Set font
+      doc.setFont('helvetica');
+      
+      // Add BlueHand Canvas Logo image
+      try {
+        const logoUrl = 'https://res.cloudinary.com/driv1havv/image/upload/v1769787364/BLUEHAND_logo_kcoulo.png';
+        const logoResponse = await fetch(logoUrl);
+        const logoArrayBuffer = await logoResponse.arrayBuffer();
+        
+        // Convert ArrayBuffer to base64 (Deno-compatible way)
+        const logoUint8Array = new Uint8Array(logoArrayBuffer);
+        let binaryString = '';
+        for (let i = 0; i < logoUint8Array.length; i++) {
+          binaryString += String.fromCharCode(logoUint8Array[i]);
+        }
+        const logoBase64 = 'data:image/png;base64,' + btoa(binaryString);
+        
+        // Add logo image to PDF (40mm wide, auto height, at top left)
+        doc.addImage(logoBase64, 'PNG', 20, 10, 40, 0);
+        console.log('✅ Logo added to PDF successfully');
+      } catch (error) {
+        console.error('⚠️ Could not load logo, using text fallback:', error);
+        // Fallback to text logo if image fails
+        doc.setFontSize(22);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(59, 130, 246);
+        doc.text('BlueHand Canvas', 20, 15);
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(100, 100, 100);
+        doc.text('Arta ta, într-o nouă dimensiune', 20, 20);
+      }
+      
+      // Reset color to black for rest of document
+      doc.setTextColor(0, 0, 0);
+      
+      // Header - FACTURA FISCALA
+      doc.setFontSize(18);
+      doc.setFont('helvetica', 'bold');
+      doc.text('FACTURA FISCALA', 105, 30, { align: 'center' });
+      
+      // Invoice number and date
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Nr. Factura: ${invoiceNumber}`, 20, 40);
+      doc.text(`Data: ${new Date(orderDate).toLocaleDateString('ro-RO')}`, 20, 47);
+      
+      // Supplier info (left column)
+      let yPos = 60;
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.text('FURNIZOR:', 20, yPos);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      yPos += 6;
+      doc.text('Tinypods SRL', 20, yPos);
+      yPos += 5;
+      doc.text('CUI: 50508421', 20, yPos);
+      yPos += 5;
+      doc.text('Reg. Com.: J2024019956002', 20, yPos);
+      yPos += 5;
+      doc.text('Tara: ROMANIA', 20, yPos);
+      yPos += 5;
+      doc.text('jud. Ilfov, Localitate: Pantelimon', 20, yPos);
+      yPos += 5;
+      doc.text('Oras. PANTELIMON, STR. BUSTENI,', 20, yPos);
+      yPos += 5;
+      doc.text('NR.1, AP.6', 20, yPos);
+      yPos += 5;
+      doc.text('IBAN: RO21BTRLRONCRT0CU1300801', 20, yPos);
+      
+      // Client info (right column)
+      yPos = 60;
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.text('CLIENT:', 120, yPos);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      yPos += 6;
+      
+      // Name
+      doc.text(billingName || customerName, 120, yPos);
+      yPos += 5;
+      
+      // CUI (only for companies)
+      if (billingCUI) {
+        doc.text(`CUI: ${billingCUI}`, 120, yPos);
+        yPos += 5;
+      }
+      
+      // Reg. Com. (only for companies)
+      if (billingRegCom) {
+        doc.text(`Reg. Com.: ${billingRegCom}`, 120, yPos);
+        yPos += 5;
+      }
+      
+      // Email
+      if (customerEmail) {
+        doc.text(`Email: ${customerEmail}`, 120, yPos);
+        yPos += 5;
+      }
+      
+      // Phone
+      if (customerPhone) {
+        doc.text(`Telefon: ${customerPhone}`, 120, yPos);
+        yPos += 5;
+      }
+      
+      // Address
+      if (billingAddress || customerAddress) {
+        const addressLines = doc.splitTextToSize(billingAddress || customerAddress, 70);
+        addressLines.forEach((line: string) => {
+          doc.text(line, 120, yPos);
+          yPos += 5;
+        });
+      }
+      
+      // City and County
+      if (customerCity || customerCounty) {
+        const location = `${customerCity || ''}${customerCity && customerCounty ? ', ' : ''}${customerCounty || ''}`;
+        doc.text(location, 120, yPos);
+        yPos += 5;
+      }
+      
+      // Country
+      doc.text('ROMANIA', 120, yPos);
+      
+      // Items table - start well below the supplier/client info
+      yPos = 120;
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      
+      // Table header with TVA column
+      doc.text('Produs/Serviciu', 20, yPos);
+      doc.text('Cant.', 100, yPos);
+      doc.text('Pret unitar', 120, yPos);
+      doc.text('TVA 21%', 150, yPos);
+      doc.text('Total', 175, yPos);
+      
+      // Table header line
+      doc.line(20, yPos + 2, 190, yPos + 2);
+      
+      yPos += 8;
+      doc.setFont('helvetica', 'normal');
+      
+      // Table rows with proper calculations
+      enrichedItems.forEach((item: any, index: number) => {
+        console.log(`📦 Item ${index}:`, JSON.stringify(item, null, 2));
+        
+        // Try both 'price' and 'total' fields (some calls use different field names)
+        const itemTotal = parseFloat(item.price || item.total || 0);
+        console.log(`💰 Item ${index} total: ${itemTotal}`);
+        
+        const itemWithoutVAT = itemTotal / (1 + VAT_RATE);
+        const itemVAT = itemTotal - itemWithoutVAT;
+        const quantity = item.quantity || 1;
+        const unitPrice = itemWithoutVAT / quantity;
+        
+        // Build item description with title and size (matching HTML invoice format)
+        const itemTitle = item.paintingTitle || item.title || 'Tablou Personalizat';
+        const itemSize = item.size || '';
+        const itemDesc = itemSize ? `${itemTitle} - ${itemSize}` : itemTitle;
+        
+        // Don't truncate - allow full title to wrap to second line
+        doc.text(itemDesc, 20, yPos, { maxWidth: 80 }); // maxWidth allows wrapping
+        doc.text(quantity.toString(), 103, yPos, { align: 'right' });
+        doc.text(`${unitPrice.toFixed(2)}`, 138, yPos, { align: 'right' });
+        doc.text(`${itemVAT.toFixed(2)}`, 163, yPos, { align: 'right' });
+        doc.text(`${itemTotal.toFixed(2)}`, 188, yPos, { align: 'right' });
+        
+        // Add more vertical space if text wrapped
+        const lines = doc.splitTextToSize(itemDesc, 80);
+        yPos += Math.max(6, lines.length * 6);
+      });
+      
+      // Table footer line
+      doc.line(20, yPos, 190, yPos);
+      yPos += 8;
+      
+      // Totals
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.text('Total fara TVA:', 130, yPos);
+      doc.text(`${totalWithoutVAT.toFixed(2)} lei`, 188, yPos, { align: 'right' });
+      yPos += 6;
+      doc.text('TVA 21%:', 130, yPos);
+      doc.text(`${vatAmount.toFixed(2)} lei`, 188, yPos, { align: 'right' });
+      yPos += 8;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.text('TOTAL DE PLATA:', 120, yPos);
+      doc.text(`${totalAmount.toFixed(2)} lei`, 188, yPos, { align: 'right' });
+      
+      // Footer
+      yPos = 270;
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'italic');
+      const footerText = 'Factura circula fara semnatura si stampila cf. art.V, alin (2) din Ordonanta nr.17/2015 si art. 319 alin (29) din Legea nr. 227/2015 privind Codul fiscal.';
+      const footerLines = doc.splitTextToSize(footerText, 170);
+      footerLines.forEach((line: string, index: number) => {
+        doc.text(line, 105, yPos + (index * 4), { align: 'center' });
+      });
+      
+      // Get PDF as ArrayBuffer
+      console.log('✅ PDF document generated');
+      const pdfArrayBuffer = doc.output('arraybuffer');
+      const pdfBuffer = new Uint8Array(pdfArrayBuffer);
+      console.log(`📄 PDF size: ${pdfBuffer.length} bytes`);
+      
+      // Convert PDF buffer to base64 for upload (chunk-based to avoid stack overflow)
+      let binaryString = '';
+      const chunkSize = 8192; // Process in chunks
+      for (let i = 0; i < pdfBuffer.length; i += chunkSize) {
+        const chunk = pdfBuffer.slice(i, i + chunkSize);
+        binaryString += String.fromCharCode(...chunk);
+      }
+      const base64PDF = btoa(binaryString);
+      const dataURI = `data:application/pdf;base64,${base64PDF}`;
+      console.log('✅ PDF converted to base64 successfully');
+      
+      // Create a unique filename
+      const fileName = `invoice-${orderNumber.replace('#', '')}-${Date.now()}`;
+      const publicId = `invoices/${fileName}`;
+      
+      // Upload to Cloudinary using unsigned upload
+      const formData = new FormData();
+      formData.append('file', dataURI);
+      formData.append('upload_preset', cloudinarySettings.uploadPreset);
+      formData.append('resource_type', 'raw'); // CRITICAL: PDFs must use 'raw' resource type
+      formData.append('public_id', publicId);
+      formData.append('folder', 'invoices'); // Optional: organize in folders
+      
+      console.log('📤 Uploading PDF to Cloudinary...');
+      console.log('📋 Upload preset:', cloudinarySettings.uploadPreset);
+      console.log('📋 Resource type: raw (for PDF)');
+      const uploadResponse = await fetch(
+        `https://api.cloudinary.com/v1_1/${cloudinarySettings.cloudName}/raw/upload`,
+        {
+          method: 'POST',
+          body: formData,
+        }
+      );
+      
+      if (!uploadResponse.ok) {
+        const errorText = await uploadResponse.text();
+        console.error('❌ Cloudinary upload failed:', errorText);
+        throw new Error(`Cloudinary upload failed: ${uploadResponse.status}`);
+      }
+      
+      const uploadResult = await uploadResponse.json();
+      // Cloudinary will serve the PDF - the URL will include the .pdf extension
+      cloudinaryUrl = uploadResult.secure_url;
+      console.log('✅ Invoice PDF uploaded to Cloudinary:', cloudinaryUrl);
+      console.log('📦 Cloudinary response:', JSON.stringify(uploadResult, null, 2));
+      
+    } catch (cloudinaryError) {
+      console.error('❌ Cloudinary PDF generation/upload error:', cloudinaryError);
+      // If Cloudinary fails, still store invoice HTML in KV as fallback
+      console.log('⚠️ Falling back to KV storage for invoice');
+    }
+    
+    // Store invoice reference in KV store (with or without Cloudinary URL)
+    const invoiceData = {
+      invoiceNumber,
+      orderNumber,
+      cloudinaryUrl: cloudinaryUrl || null,
+      html: cloudinaryUrl ? null : invoiceHTML, // Only store HTML if Cloudinary failed
+      totalWithoutVAT: totalWithoutVAT.toFixed(2),
+      vatAmount: vatAmount.toFixed(2),
+      totalAmount: totalAmount.toFixed(2),
+      generatedAt: new Date().toISOString()
+    };
+    
+    await kv.set(`invoice:${orderNumber}`, invoiceData);
+    
+    console.log(`✅ Invoice generated and stored for order ${orderNumber}`);
+    
+    return c.json({
+      success: true,
+      invoiceNumber,
+      cloudinaryUrl: cloudinaryUrl || null,
+      html: cloudinaryUrl ? null : invoiceHTML // Only return HTML if no Cloudinary URL
+    });
+    
+  } catch (error) {
+    console.error('❌ Error generating invoice:', error);
+    return c.json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Failed to generate invoice'
+    }, 500);
+  }
+});
+
+// Get invoice for an order
+app.get("/make-server-bbc0c500/invoice/:orderNumber", async (c) => {
+  try {
+    const orderNumber = c.req.param('orderNumber');
+    console.log(`🔍 [INVOICE-GET] Fetching invoice for order: ${orderNumber}`);
+    
+    // Log authorization header for debugging
+    const authHeader = c.req.header('Authorization');
+    console.log(`🔑 [INVOICE-GET] Authorization header present: ${authHeader ? 'YES' : 'NO'}`);
+    
+    const invoice = await kv.get(`invoice:${orderNumber}`);
+    console.log(`📄 [INVOICE-GET] Invoice found:`, invoice ? 'Yes' : 'No');
+    
+    if (!invoice) {
+      console.log(`❌ [INVOICE-GET] Invoice not found for order: ${orderNumber}`);
+      return c.json({ success: false, error: 'Invoice not found' }, 404);
+    }
+    
+    console.log(`✅ [INVOICE-GET] Returning invoice for order: ${orderNumber}`);
+    console.log(`📦 [INVOICE-GET] Invoice data: cloudinaryUrl=${invoice.cloudinaryUrl ? 'present' : 'missing'}, html=${invoice.html ? 'present' : 'missing'}`);
+    
+    return c.json({
+      success: true,
+      invoice
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching invoice:', error);
+    return c.json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Failed to fetch invoice'
+    }, 500);
+  }
+});
+
+// Download invoice as PDF (or HTML fallback for legacy invoices)
+app.get("/make-server-bbc0c500/invoice/:orderNumber/download", async (c) => {
+  try {
+    const orderNumber = c.req.param('orderNumber');
+    
+    const invoice = await kv.get<{
+      invoiceNumber: string;
+      cloudinaryUrl?: string;
+      html?: string;
+    }>(`invoice:${orderNumber}`);
+    
+    if (!invoice) {
+      return c.text('Invoice not found', 404);
+    }
+    
+    // If Cloudinary URL exists, redirect to it
+    if (invoice.cloudinaryUrl) {
+      console.log(`📤 Redirecting to Cloudinary URL: ${invoice.cloudinaryUrl}`);
+      return c.redirect(invoice.cloudinaryUrl, 302);
+    }
+    
+    // Fallback: Return HTML from KV store if Cloudinary URL not available
+    if (!invoice.html) {
+      return c.text('Invoice content not available', 404);
+    }
+    
+    // Return HTML with proper headers for download
+    return c.html(invoice.html, 200, {
+      'Content-Disposition': `attachment; filename="Factura_${invoice.invoiceNumber.replace(' ', '_')}.html"`,
+    });
+    
+  } catch (error) {
+    console.error('❌ Error downloading invoice:', error);
+    return c.text('Failed to download invoice', 500);
   }
 });
 
@@ -1953,7 +2652,7 @@ app.post("/make-server-bbc0c500/netopia/start-payment", async (c) => {
       }, 500);
       
     } catch (fetchError) {
-      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━���━━━━━━━');
       console.error('❌ FETCH ERROR - Failed to call Netopia API');
       console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.error('Error type:', fetchError?.constructor?.name);
@@ -2954,6 +3653,118 @@ app.post("/make-server-bbc0c500/unsplash/settings", async (c) => {
   } catch (error) {
     console.error('Error saving Unsplash settings:', error);
     return c.json({ success: false, error: 'Failed to save settings' }, 500);
+  }
+});
+
+// ==================== ADMIN PANEL ENDPOINTS ====================
+
+// Get all orders
+app.get("/make-server-bbc0c500/orders", async (c) => {
+  try {
+    const orders = await kv.getByPrefix('order:');
+    return c.json(orders || []);
+  } catch (error) {
+    console.error('Error fetching orders:', error);
+    return c.json({ error: 'Failed to fetch orders' }, 500);
+  }
+});
+
+// Get single order by ID
+app.get("/make-server-bbc0c500/orders/:orderId", async (c) => {
+  try {
+    const orderId = c.req.param('orderId');
+    const order = await kv.get(`order:${orderId}`);
+    
+    if (!order) {
+      return c.json({ error: 'Order not found' }, 404);
+    }
+    
+    return c.json(order);
+  } catch (error) {
+    console.error('Error fetching order:', error);
+    return c.json({ error: 'Failed to fetch order' }, 500);
+  }
+});
+
+// Update order status
+app.patch("/make-server-bbc0c500/orders/:orderId/status", async (c) => {
+  try {
+    const orderId = c.req.param('orderId');
+    const updates = await c.req.json();
+    
+    const order = await kv.get(`order:${orderId}`);
+    if (!order) {
+      return c.json({ error: 'Order not found' }, 404);
+    }
+    
+    const updatedOrder = { ...order, ...updates };
+    await kv.set(`order:${orderId}`, updatedOrder);
+    
+    return c.json({ success: true, order: updatedOrder });
+  } catch (error) {
+    console.error('Error updating order status:', error);
+    return c.json({ error: 'Failed to update order status' }, 500);
+  }
+});
+
+// Get all paintings
+app.get("/make-server-bbc0c500/paintings", async (c) => {
+  try {
+    const paintings = await kv.getByPrefix('painting:');
+    return c.json(paintings || []);
+  } catch (error) {
+    console.error('Error fetching paintings:', error);
+    return c.json({ error: 'Failed to fetch paintings' }, 500);
+  }
+});
+
+// Get all sizes
+app.get("/make-server-bbc0c500/sizes", async (c) => {
+  try {
+    const sizes = await kv.getByPrefix('size:');
+    return c.json(sizes || []);
+  } catch (error) {
+    console.error('Error fetching sizes:', error);
+    return c.json({ error: 'Failed to fetch sizes' }, 500);
+  }
+});
+
+// Get all frame types
+app.get("/make-server-bbc0c500/frame-types", async (c) => {
+  try {
+    const frameTypes = await kv.getByPrefix('frame_type:');
+    return c.json(frameTypes || []);
+  } catch (error) {
+    console.error('Error fetching frame types:', error);
+    return c.json({ error: 'Failed to fetch frame types' }, 500);
+  }
+});
+
+// Get all clients
+app.get("/make-server-bbc0c500/clients", async (c) => {
+  try {
+    const clients = await kv.getByPrefix('client:');
+    return c.json(clients || []);
+  } catch (error) {
+    console.error('Error fetching clients:', error);
+    return c.json({ error: 'Failed to fetch clients' }, 500);
+  }
+});
+
+// Get single client by ID
+app.get("/make-server-bbc0c500/clients/:clientId", async (c) => {
+  try {
+    const clientId = c.req.param('clientId');
+    const client = await kv.get(`client:${clientId}`);
+    
+    if (!client) {
+      return c.json({ error: 'Client not found' }, 404);
+    }
+    
+    return c.json(client);
+  } catch (error) {
+    console.error('Error fetching client:', error);
+    return c.json({ error: 'Failed to fetch client' }, 500);
   }
 });
 
