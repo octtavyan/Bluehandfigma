@@ -37,6 +37,11 @@ interface Order {
   cui?: string;
   regCom?: string;
   invoiceUrl?: string;
+  // FGO Invoice fields
+  fgoInvoiceNumber?: string;
+  fgoInvoiceSerie?: string;
+  fgoInvoiceLink?: string;
+  fgoInvoiceGeneratedAt?: string;
 }
 
 interface CanvasItem {
@@ -75,8 +80,9 @@ interface FrameType {
 
 const statusConfig = {
   payment: {
-    pending: { label: 'Nepaid', color: 'text-yellow-600' },
-    completed: { label: 'Finalizată', color: 'text-green-600' },
+    unpaid: { label: 'Neplătit', color: 'text-yellow-600' },
+    paid: { label: 'Plătit', color: 'text-green-600' },
+    cod: { label: 'Plata la Livrare', color: 'text-blue-600' },
     failed: { label: 'Eșuată', color: 'text-red-600' }
   },
   delivery: {
@@ -102,7 +108,7 @@ const getAvailableStatuses = (userRole: string | undefined): OrderStatus[] => {
 export default function AdminOrderDetailPage() {
   const { orderId } = useParams<{ orderId: string }>();
   const navigate = useNavigate();
-  const { currentUser, refreshData } = useAdmin();
+  const { currentUser, refreshData, updateOrderStatus } = useAdmin();
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
@@ -133,12 +139,7 @@ export default function AdminOrderDetailPage() {
         throw new Error('Order not found');
       }
       
-      console.log('📦 Fetched order data:', {
-        orderNumber: data.orderNumber,
-        status: data.status,
-        invoiceUrl: data.invoiceUrl,
-        hasInvoice: !!data.invoiceUrl
-      });
+
       
       // Transform the data to match the component's expected format
       const transformedOrder = {
@@ -165,18 +166,23 @@ export default function AdminOrderDetailPage() {
         companyCounty: data.companyCounty,
         cui: data.cui,
         regCom: data.regCom,
-        invoiceUrl: data.invoiceUrl
+        invoiceUrl: data.invoiceUrl,
+        fgoInvoiceNumber: data.fgoInvoiceNumber,
+        fgoInvoiceSerie: data.fgoInvoiceSerie,
+        fgoInvoiceLink: data.fgoInvoiceLink,
+        fgoInvoiceGeneratedAt: data.fgoInvoiceGeneratedAt
       };
       
       setOrder(transformedOrder);
       setInternalNotes(transformedOrder.notes);
       
       // Load invoice URL from database if it exists
-      if (data.invoiceUrl) {
-        console.log('✅ Loaded existing invoice from database:', data.invoiceUrl);
+      // Prioritize FGO invoice if available
+      if (data.fgoInvoiceLink) {
+        setInvoiceUrl(data.fgoInvoiceLink);
+      } else if (data.invoiceUrl) {
         setInvoiceUrl(data.invoiceUrl);
       } else {
-        console.log('ℹ️ No invoice found in database for this order');
         setInvoiceUrl(null);
       }
     } catch (error) {
@@ -265,10 +271,11 @@ export default function AdminOrderDetailPage() {
           ? `${order.companyAddress || ''}, ${order.companyCity || ''}, ${order.companyCounty || ''}`.trim()
           : `${order.address || ''}, ${order.city || ''}, ${order.county || ''}${order.postalCode ? ', ' + order.postalCode : ''}`.trim(),
         billingCUI: order.cui || '',
-        billingRegCom: order.regCom || ''
+        billingRegCom: order.regCom || '',
+        // Include FGO invoice details if they exist
+        fgoInvoiceNumber: order.fgoInvoiceNumber || undefined,
+        fgoInvoiceSerie: order.fgoInvoiceSerie || undefined
       };
-      
-      console.log('📋 Generating invoice with data:', invoiceData);
       
       const generateResponse = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/invoice/generate`,
@@ -291,19 +298,17 @@ export default function AdminOrderDetailPage() {
       }
       
       const result = await generateResponse.json();
-      console.log('✅ Invoice generated successfully:', result);
       
-      if (result.cloudinaryUrl) {
-        setInvoiceUrl(result.cloudinaryUrl);
+      if (result.success && result.invoiceNumber) {
+        // Invoice is stored in KV
+        setInvoiceUrl('generated');
         
-        // Save invoice URL to database
-        await ordersService.update(orderId, { invoiceUrl: result.cloudinaryUrl });
-        console.log('✅ Invoice URL saved to database');
-        
-        toast.success('Factura a fost generată și salvată cu succes!');
+        // Save flag to database
+        await ordersService.update(orderId, { invoiceUrl: 'generated' });
+        toast.success('Factura a fost regenerată și sincronizată cu succes!');
       } else {
-        console.error('❌ No cloudinaryUrl in response:', result);
-        toast.error('Factura a fost generată dar URL-ul lipsește');
+        console.error('❌ Invoice generation failed:', result);
+        toast.error('Eroare la generarea facturii');
       }
     } catch (error) {
       console.error('❌ Error generating invoice:', error);
@@ -317,32 +322,80 @@ export default function AdminOrderDetailPage() {
     try {
       if (!orderId) return;
       
-      const updateData = type === 'payment' 
-        ? { paymentStatus: newStatus }
-        : { status: newStatus }; // Database uses 'status' for delivery status
-      
-      console.log('📝 Updating order status:', { orderId, type, newStatus, updateData });
-      const success = await ordersService.update(orderId, updateData);
-      
-      if (!success) {
-        console.error('❌ Failed to update order status in database');
-        toast.error('Eroare la actualizarea statusului în baza de date');
-        return;
-      }
-      
-      console.log('✅ Order status updated successfully in database');
-      toast.success(`Status ${type === 'payment' ? 'plată' : 'livrare'} actualizat!`);
-      
-      // If delivery status changed to "delivered", generate invoice (if doesn't exist) and send email
-      if (type === 'delivery' && newStatus === 'delivered' && order) {
-        let generatedInvoiceUrl = invoiceUrl; // Use existing invoice if available
+      // For delivery status changes, use AdminContext's updateOrderStatus function
+      // This will handle stock decrement when status is "delivered"
+      if (type === 'delivery') {
+        // Call AdminContext's updateOrderStatus which handles stock decrement
+        await updateOrderStatus(orderId, newStatus as OrderStatus, undefined, currentUser?.fullName);
         
-        // Only generate invoice if one doesn't exist
-        if (!generatedInvoiceUrl) {
-          console.log('📄 No existing invoice, generating new one...');
+        toast.success('Status livrare actualizat!');
+        
+        // If delivery status changed to "delivered", generate invoice (if doesn't exist) and send email
+        if (newStatus === 'delivered' && order) {
+          let generatedInvoiceUrl = invoiceUrl; // Use existing invoice if available
+          
+          // Only generate invoice if one doesn't exist
+          if (!generatedInvoiceUrl) {
+            try {
+              const invoiceResponse = await fetch(
+                `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/invoice/generate`,
+                {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${publicAnonKey}`,
+                  },
+                  body: JSON.stringify({
+                    orderNumber: order.orderNumber,
+                    orderDate: order.orderDate,
+                    customerName: order.clientName,
+                    customerEmail: order.clientEmail,
+                    customerPhone: order.clientPhone,
+                    customerAddress: order.address || '',
+                    customerCity: order.city || '',
+                    customerCounty: order.county || '',
+                    customerPostalCode: order.postalCode || '',
+                    total: order.totalPrice,
+                    deliveryPrice: 0,
+                    items: order.canvasItems.map(item => ({
+                      name: item.type === 'personalized' ? 'Tablou Personalizat' : item.paintingTitle || 'Tablou',
+                      paintingTitle: item.type === 'personalized' ? 'Tablou Personalizat' : item.paintingTitle || 'Tablou',
+                      size: item.size || 'N/A',
+                      orientation: item.orientation || '',
+                      quantity: 1,
+                      price: item.price,
+                      total: item.price
+                    })),
+                    billingName: order.personType === 'juridica' ? order.companyName : order.clientName,
+                    billingAddress: order.personType === 'juridica' 
+                      ? `${order.companyAddress || ''}, ${order.companyCity || ''}, ${order.companyCounty || ''}`.trim()
+                      : `${order.address || ''}, ${order.city || ''}, ${order.county || ''}${order.postalCode ? ', ' + order.postalCode : ''}`.trim(),
+                    billingCUI: order.cui || '',
+                    billingRegCom: order.regCom || ''
+                  })
+                }
+              );
+              
+              const invoiceData = await invoiceResponse.json();
+              
+              if (invoiceData.success && invoiceData.invoiceNumber) {
+                // Invoice is stored in KV
+                setInvoiceUrl('generated');
+                
+                // Save flag to database
+                await ordersService.update(orderId, { invoiceUrl: 'generated' });
+                toast.success('📄 Factură generată și salvată!');
+              }
+            } catch (error) {
+              console.error('❌ Error generating invoice:', error);
+              toast.error('Eroare la generarea facturii');
+            }
+          }
+          
+          // Send shipped confirmation email with invoice
           try {
-            const invoiceResponse = await fetch(
-              `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/invoice/generate`,
+            const emailResponse = await fetch(
+              `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/email/send-shipped-confirmation`,
               {
                 method: 'POST',
                 headers: {
@@ -351,89 +404,42 @@ export default function AdminOrderDetailPage() {
                 },
                 body: JSON.stringify({
                   orderNumber: order.orderNumber,
-                  orderDate: order.orderDate,
                   customerName: order.clientName,
                   customerEmail: order.clientEmail,
-                  customerPhone: order.clientPhone,
-                  customerAddress: order.address || '',
-                  customerCity: order.city || '',
-                  customerCounty: order.county || '',
-                  customerPostalCode: order.postalCode || '',
-                  total: order.totalPrice,
-                  deliveryPrice: 0,
-                  items: order.canvasItems.map(item => ({
-                    name: item.type === 'personalized' ? 'Tablou Personalizat' : item.paintingTitle || 'Tablou',
-                    paintingTitle: item.type === 'personalized' ? 'Tablou Personalizat' : item.paintingTitle || 'Tablou',
-                    size: item.size || 'N/A',
-                    orientation: item.orientation || '',
-                    quantity: 1,
-                    price: item.price,
-                    total: item.price
-                  })),
-                  billingName: order.personType === 'juridica' ? order.companyName : order.clientName,
-                  billingAddress: order.personType === 'juridica' 
-                    ? `${order.companyAddress || ''}, ${order.companyCity || ''}, ${order.companyCounty || ''}`.trim()
-                    : `${order.address || ''}, ${order.city || ''}, ${order.county || ''}${order.postalCode ? ', ' + order.postalCode : ''}`.trim(),
-                  billingCUI: order.cui || '',
-                  billingRegCom: order.regCom || ''
-                })
+                  invoiceUrl: generatedInvoiceUrl,
+                  orderData: order, // Pass full order data for PDF generation
+                }),
               }
             );
             
-            const invoiceData = await invoiceResponse.json();
-            
-            if (invoiceData.success && invoiceData.cloudinaryUrl) {
-              generatedInvoiceUrl = invoiceData.cloudinaryUrl;
-              setInvoiceUrl(generatedInvoiceUrl);
-              
-              // Save invoice URL to database
-              await ordersService.update(orderId, { invoiceUrl: generatedInvoiceUrl });
-              console.log('✅ Invoice generated and saved to database:', generatedInvoiceUrl);
-              toast.success('📄 Factură generată și salvată!');
+            if (emailResponse.ok) {
+              toast.success('📧 Email de confirmare livrare trimis!');
             }
           } catch (error) {
-            console.error('❌ Error generating invoice:', error);
-            toast.error('Eroare la generarea facturii');
+            console.error('❌ Error sending email:', error);
+            toast.error('Eroare la trimiterea emailului');
           }
-        } else {
-          console.log('ℹ️ Using existing invoice:', generatedInvoiceUrl);
+        }
+      } else {
+        // For payment status, use direct database update (no stock impact)
+        const updateData = { paymentStatus: newStatus };
+        
+        const success = await ordersService.update(orderId, updateData);
+        
+        if (!success) {
+          console.error('❌ Failed to update order status in database');
+          toast.error('Eroare la actualizarea statusului în baza de date');
+          return;
         }
         
-        // Send shipped confirmation email with invoice
-        try {
-          const emailResponse = await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/email/send-shipped-confirmation`,
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${publicAnonKey}`,
-              },
-              body: JSON.stringify({
-                orderNumber: order.orderNumber,
-                customerName: order.clientName,
-                customerEmail: order.clientEmail,
-                invoiceUrl: generatedInvoiceUrl,
-              }),
-            }
-          );
-          
-          if (emailResponse.ok) {
-            toast.success('📧 Email de confirmare livrare trimis!');
-          }
-        } catch (error) {
-          console.error('❌ Error sending email:', error);
-          toast.error('Eroare la trimiterea emailului');
-        }
+        toast.success('Status plată actualizat!');
       }
       
       // Refresh order data from database
       await fetchOrder();
       
       // Refresh global context data so Orders page and Dashboard show updated status
-      console.log('🔄 Refreshing global context data...');
       await refreshData();
-      console.log('✅ Global context refreshed');
       
       setShowPaymentDropdown(false);
       setShowDeliveryDropdown(false);
@@ -472,6 +478,48 @@ export default function AdminOrderDetailPage() {
     } catch (error) {
       console.error('Error downloading image:', error);
       toast.error('Eroare la descărcarea imaginii');
+    }
+  };
+
+  const viewInvoice = async () => {
+    if (!order) return;
+    
+    try {
+      // Fetch invoice HTML from server
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/invoice/${order.orderNumber}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${publicAnonKey}`,
+          },
+        }
+      );
+      
+      if (!response.ok) {
+        toast.error('Factura nu a fost găsită');
+        return;
+      }
+      
+      const data = await response.json();
+      
+      if (!data.success || !data.invoice || !data.invoice.html) {
+        toast.error('Factura nu conține HTML');
+        return;
+      }
+      
+      // Open new window and write HTML directly
+      const newWindow = window.open('', '_blank');
+      if (!newWindow) {
+        toast.error('Vă rugăm să permiteți pop-up-urile pentru acest site');
+        return;
+      }
+      
+      newWindow.document.write(data.invoice.html);
+      newWindow.document.close();
+      
+    } catch (error) {
+      console.error('❌ Error viewing invoice:', error);
+      toast.error('Eroare la afișarea facturii');
     }
   };
 
@@ -535,20 +583,24 @@ export default function AdminOrderDetailPage() {
                   minute: '2-digit'
                 })}
               </p>
+              {order.fgoInvoiceSerie && order.fgoInvoiceNumber && (
+                <p className="text-xs sm:text-sm text-green-600 mt-1 font-medium">
+                  <FileText className="w-3 h-3 sm:w-3.5 sm:h-3.5 inline mr-1" />
+                  Factură fiscală: {order.fgoInvoiceSerie}-{order.fgoInvoiceNumber}
+                </p>
+              )}
             </div>
             
             <div className="flex gap-2">
               {invoiceUrl ? (
                 <>
-                  <a
-                    href={invoiceUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    onClick={viewInvoice}
                     className="px-3 py-1.5 sm:px-4 sm:py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-xs sm:text-sm flex items-center gap-1.5"
                   >
-                    <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                    Descarcă Factură
-                  </a>
+                    <Eye className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    {order.fgoInvoiceLink ? 'Vezi Factură FGO' : 'Vezi Factură'}
+                  </button>
                   <button
                     onClick={regenerateInvoice}
                     disabled={invoiceLoading}
@@ -579,15 +631,20 @@ export default function AdminOrderDetailPage() {
             <h3 className="text-xs sm:text-sm text-gray-600 mb-2 sm:mb-3">Status Plată</h3>
             <div className="relative">
               <button
-                onClick={() => setShowPaymentDropdown(!showPaymentDropdown)}
-                className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 rounded border border-gray-200 hover:bg-gray-100 transition-colors"
+                onClick={() => currentUser?.role !== 'production' && setShowPaymentDropdown(!showPaymentDropdown)}
+                disabled={currentUser?.role === 'production'}
+                className={`w-full flex items-center justify-between px-3 py-2 bg-gray-50 rounded border border-gray-200 transition-colors ${
+                  currentUser?.role === 'production' 
+                    ? 'cursor-not-allowed opacity-60' 
+                    : 'hover:bg-gray-100 cursor-pointer'
+                }`}
               >
                 <span className={`text-xs sm:text-sm ${statusConfig.payment[order.paymentStatus as keyof typeof statusConfig.payment]?.color || 'text-gray-600'}`}>
                   {statusConfig.payment[order.paymentStatus as keyof typeof statusConfig.payment]?.label || order.paymentStatus}
                 </span>
-                <ChevronDown className="w-4 h-4 text-gray-400" />
+                <ChevronDown className={`w-4 h-4 text-gray-400 ${currentUser?.role === 'production' ? 'opacity-50' : ''}`} />
               </button>
-              {showPaymentDropdown && (
+              {showPaymentDropdown && currentUser?.role !== 'production' && (
                 <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg">
                   {Object.entries(statusConfig.payment).map(([key, config]) => (
                     <button
@@ -603,9 +660,9 @@ export default function AdminOrderDetailPage() {
             </div>
           </div>
 
-          {/* Delivery Status - Display Only */}
+          {/* Delivery Status - Renamed to Status Comandă */}
           <div className="bg-white rounded-lg p-4 sm:p-6 border-2 border-gray-200">
-            <h3 className="text-xs sm:text-sm text-gray-600 mb-2 sm:mb-3">Status Livrare</h3>
+            <h3 className="text-xs sm:text-sm text-gray-600 mb-2 sm:mb-3">Status Comandă</h3>
             <div className="relative">
               <button
                 onClick={() => setShowDeliveryDropdown(!showDeliveryDropdown)}
@@ -705,7 +762,7 @@ export default function AdminOrderDetailPage() {
               </div>
               <div>
                 <p className="text-gray-600">Total Comandă</p>
-                <p className="text-blue-500 font-semibold text-2xl sm:text-3xl">{order.totalPrice.toFixed(2)} lei</p>
+                <p className="text-blue-500 font-semibold text-2xl sm:text-3xl">{(order.totalPrice || 0).toFixed(2)} lei</p>
               </div>
             </div>
           </div>
@@ -807,7 +864,13 @@ export default function AdminOrderDetailPage() {
                     <p className="text-sm font-medium text-gray-900 mb-3">{item.paintingTitle || 'Tablou Personalizat'}</p>
                     
                     <div className="flex gap-3">
-                      <div className="w-16 h-16 bg-white rounded-lg overflow-hidden flex-shrink-0 border border-blue-300">
+                      <div 
+                        className="w-16 h-16 bg-white rounded-lg overflow-hidden flex-shrink-0 border border-blue-300 cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={() => {
+                          setPreviewImage(item.croppedImage);
+                          setShowPreviewModal(true);
+                        }}
+                      >
                         <img 
                           src={item.croppedImage} 
                           alt="Tablou Personalizat"
@@ -933,7 +996,7 @@ export default function AdminOrderDetailPage() {
           {/* Total */}
           <div className="flex justify-end items-center gap-4 mt-6 pt-4 border-t border-gray-200">
             <span className="text-sm text-gray-600">Total Produse:</span>
-            <span className="text-xl font-bold text-blue-500">{order.totalPrice.toFixed(2)} lei</span>
+            <span className="text-xl font-bold text-blue-500">{(order.totalPrice || 0).toFixed(2)} lei</span>
           </div>
         </div>
 
@@ -963,18 +1026,24 @@ export default function AdminOrderDetailPage() {
 
       {/* Preview Modal */}
       {showPreviewModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="relative max-w-4xl w-full">
+        <div 
+          className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          onClick={() => setShowPreviewModal(false)}
+        >
+          <div 
+            className="relative max-w-4xl w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
             <button
               onClick={() => setShowPreviewModal(false)}
-              className="absolute -top-10 right-0 text-white hover:text-gray-300 transition-colors"
+              className="absolute -top-12 right-0 text-white hover:text-gray-300 transition-colors bg-black/20 rounded-full p-2"
             >
-              <X className="w-8 h-8" />
+              <X className="w-6 h-6" />
             </button>
             <img 
               src={previewImage} 
               alt="Preview" 
-              className="w-full h-auto rounded-lg"
+              className="w-full h-auto rounded-lg shadow-2xl"
             />
           </div>
         </div>

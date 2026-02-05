@@ -8,7 +8,7 @@ import type { BlogPost } from '../context/AdminContext';
 
 export const BlogPostPage: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
-  const { blogPosts, paintings } = useAdmin();
+  const { blogPosts } = useAdmin();
   const [post, setPost] = useState<BlogPost | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -49,14 +49,6 @@ export const BlogPostPage: React.FC = () => {
       .filter(p => p.id !== post.id && p.isPublished)
       .slice(0, 2);
   }, [blogPosts, post]);
-
-  // Get random canvas paintings for recommendations (4 paintings)
-  // Must be defined before any conditional returns
-  const recommendedPaintings = useMemo(() => {
-    const activePaintings = paintings.filter(p => p.isActive);
-    const shuffled = [...activePaintings].sort(() => Math.random() - 0.5);
-    return shuffled.slice(0, 4);
-  }, [paintings, slug]); // Re-randomize when slug changes (new article)
 
   // Format the content - if already has HTML, use it, otherwise auto-format
   // Must be defined before any conditional returns
@@ -152,46 +144,6 @@ export const BlogPostPage: React.FC = () => {
             />
           </div>
         </article>
-
-        {recommendedPaintings.length > 0 && (
-          <div className="mt-16 pt-8 border-t-2 border-gray-200">
-            <div className="text-center mb-8">
-              <h3 className="text-2xl md:text-3xl text-gray-900 mb-3 md:mb-4">Recomandările Noastre!</h3>
-              <p className="text-sm md:text-base text-gray-600">Descoperă tablouri canvas perfecte pentru decorarea casei tale</p>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
-              {recommendedPaintings.map(painting => (
-                <Link
-                  key={painting.id}
-                  to={`/produs/${painting.id}`}
-                  className="group"
-                >
-                  <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden mb-3">
-                    <img
-                      src={painting.imageUrls?.medium || painting.image}
-                      alt={painting.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    />
-                  </div>
-                  <h4 className="text-sm md:text-base text-gray-900 group-hover:text-[#6994FF] transition-colors line-clamp-2">
-                    {painting.title}
-                  </h4>
-                  <p className="text-sm md:text-base text-gray-900 mt-1">
-                    {painting.price} RON
-                  </p>
-                </Link>
-              ))}
-            </div>
-            <div className="text-center mt-8">
-              <Link
-                to="/tablouri-canvas"
-                className="inline-block px-6 py-3 bg-[#6994FF] text-white rounded-lg hover:bg-[#5078E6] transition-colors"
-              >
-                Vezi Toate Tablourile Canvas
-              </Link>
-            </div>
-          </div>
-        )}
 
         {relatedPosts.length > 0 && (
           <div className="mt-12 pt-8 border-t border-gray-200">

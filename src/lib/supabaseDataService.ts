@@ -29,6 +29,7 @@ export interface CanvasSize {
   isActive: boolean;
   supportsPrintCanvas?: boolean;
   supportsPrintHartie?: boolean;
+  stock?: number; // Inventory stock count
   framePrices?: Record<string, {
     price: number;
     discount: number;
@@ -259,6 +260,7 @@ export const canvasSizesService = {
       isActive: s.is_active !== false,
       supportsPrintCanvas: s.supports_print_canvas !== false,
       supportsPrintHartie: s.supports_print_hartie !== false,
+      stock: s.stock ?? 0, // Use nullish coalescing to preserve 0 values
       framePrices: s.frame_prices || {}
     }));
   },
@@ -274,6 +276,7 @@ export const canvasSizesService = {
         supports_print_canvas: size.supportsPrintCanvas !== false,
         supports_print_hartie: size.supportsPrintHartie !== false,
         is_active: size.isActive,
+        stock: size.stock ?? 0, // Use nullish coalescing to preserve 0 values
         frame_prices: size.framePrices || {}
       }])
       .select()
@@ -293,6 +296,7 @@ export const canvasSizesService = {
       isActive: data.is_active,
       supportsPrintCanvas: data.supports_print_canvas !== false,
       supportsPrintHartie: data.supports_print_hartie !== false,
+      stock: data.stock ?? 0, // Use nullish coalescing to preserve 0 values
       framePrices: data.frame_prices || {}
     } : null;
   },
@@ -306,6 +310,7 @@ export const canvasSizesService = {
     if (updates.supportsPrintCanvas !== undefined) dbUpdates.supports_print_canvas = updates.supportsPrintCanvas;
     if (updates.supportsPrintHartie !== undefined) dbUpdates.supports_print_hartie = updates.supportsPrintHartie;
     if (updates.isActive !== undefined) dbUpdates.is_active = updates.isActive;
+    if (updates.stock !== undefined) dbUpdates.stock = updates.stock; // Add stock count
     if (updates.framePrices !== undefined) dbUpdates.frame_prices = updates.framePrices;
 
     const { data, error } = await supabase
@@ -329,6 +334,7 @@ export const canvasSizesService = {
       isActive: data.is_active,
       supportsPrintCanvas: data.supports_print_canvas !== false,
       supportsPrintHartie: data.supports_print_hartie !== false,
+      stock: data.stock ?? 0, // Use nullish coalescing to preserve 0 values
       framePrices: data.frame_prices || {}
     } : null;
   },
@@ -449,14 +455,19 @@ export const ordersService = {
     console.log('🔄 Fetching orders from Supabase...');
     
     try {
-      // ⚡ OPTIMIZED: Fetch essential fields + items array for list view
-      // Items are needed to display canvas count in table listing
+      // ⚡ Select ALL columns to debug
       const { data, error } = await supabase
         .from('orders')
-        .select('id, order_number, customer_name, customer_email, status, total, created_at, notes, person_type, items')
+        .select('*')
         .order('created_at', { ascending: false });
 
       if (error) {
+        console.error('❌ FULL ERROR DETAILS:', error);
+        console.error('❌ Error code:', error.code);
+        console.error('❌ Error message:', error.message);
+        console.error('❌ Error details:', error.details);
+        console.error('❌ Error hint:', error.hint);
+        
         // Check if it's a timeout error
         if (error.code === '57014') {
           console.warn('⚠️ Orders query timeout - trying with limit...');
@@ -464,7 +475,7 @@ export const ordersService = {
           // Fallback: Try with smaller limit
           const { data: fallbackData, error: fallbackError } = await supabase
             .from('orders')
-            .select('id, order_number, customer_name, customer_email, status, total, created_at, person_type, items')
+            .select('*')
             .order('created_at', { ascending: false })
             .limit(50);
             
@@ -474,24 +485,25 @@ export const ordersService = {
           }
           
           console.log(`✅ Fetched ${fallbackData.length} orders (fallback mode)`);
+          console.log('✅ Sample order data:', fallbackData[0]);
           return fallbackData.map(o => ({
             id: o.id,
             orderNumber: o.order_number,
-            customerName: o.customer_name,
-            customerEmail: o.customer_email,
-            customerPhone: '',
-            deliveryAddress: '',
-            deliveryCity: '',
-            deliveryCounty: '',
-            deliveryPostalCode: '',
-            deliveryOption: '',
-            paymentMethod: '',
-            paymentStatus: '',
-            items: Array.isArray(o.items) ? o.items : [], // Keep items for count in listing
-            subtotal: o.total,
+            customerName: o.client_name,
+            customerEmail: o.client_email,
+            customerPhone: o.client_phone || '',
+            deliveryAddress: o.address || '',
+            deliveryCity: o.city || '',
+            deliveryCounty: o.county || '',
+            deliveryPostalCode: o.postal_code || '',
+            deliveryOption: o.delivery_method || '',
+            paymentMethod: o.payment_method || '',
+            paymentStatus: o.payment_status || '',
+            items: Array.isArray(o.canvas_items) ? o.canvas_items : [],
+            subtotal: o.total_price,
             deliveryCost: 0,
-            total: o.total,
-            status: o.status,
+            total: o.total_price,
+            status: o.order_status || o.status, // Try both
             notes: '',
             createdAt: o.created_at,
             personType: o.person_type,
@@ -514,36 +526,37 @@ export const ordersService = {
         return [];
       }
 
-      console.log(`✅ Fetched ${data?.length || 0} orders from Supabase (optimized mode with items array)`);
-
-      // Return optimized version with items array included for count display
+      console.log(`✅ Fetched ${data?.length || 0} orders from Supabase`);
+      console.log('✅ Sample order data (first order):', data && data.length > 0 ? data[0] : 'No orders');
+      
+      // Return optimized version with canvas_items array included for count display
       return (data || []).map(o => ({
         id: o.id,
         orderNumber: o.order_number,
-        customerName: o.customer_name,
-        customerEmail: o.customer_email,
-        customerPhone: '',
-        deliveryAddress: '',
-        deliveryCity: '',
-        deliveryCounty: '',
-        deliveryPostalCode: '',
-        deliveryOption: '',
-        paymentMethod: '',
-        paymentStatus: '',
-        items: Array.isArray(o.items) ? o.items : [], // Keep items for count in listing
-        subtotal: o.total,
-        deliveryCost: 0,
-        total: o.total,
-        status: o.status,
+        customerName: o.customer_name, // FIXED: was o.client_name
+        customerEmail: o.customer_email, // FIXED: was o.client_email
+        customerPhone: o.customer_phone || '', // FIXED: was o.client_phone
+        deliveryAddress: o.delivery_address || '', // FIXED: was o.address
+        deliveryCity: o.delivery_city || '', // FIXED: was o.city
+        deliveryCounty: o.delivery_county || '', // FIXED: was o.county
+        deliveryPostalCode: o.delivery_postal_code || '', // FIXED: was o.postal_code
+        deliveryOption: o.delivery_option || '', // FIXED: was o.delivery_method
+        paymentMethod: o.payment_method || '',
+        paymentStatus: o.payment_status || '',
+        items: Array.isArray(o.items) ? o.items : [], // FIXED: was o.canvas_items
+        subtotal: o.subtotal || 0, // FIXED: was o.total_price
+        deliveryCost: o.delivery_cost || 0, // FIXED: was hardcoded 0
+        total: o.total || 0, // FIXED: was o.total_price
+        status: o.status || 'new', // FIXED: was o.order_status || o.status
         notes: o.notes || '',
         createdAt: o.created_at,
         personType: o.person_type,
-        companyName: '',
-        cui: '',
-        regCom: '',
-        companyCounty: '',
-        companyCity: '',
-        companyAddress: ''
+        companyName: o.company_name || '',
+        cui: o.cui || '',
+        regCom: o.reg_com || '',
+        companyCounty: o.company_county || '',
+        companyCity: o.company_city || '',
+        companyAddress: o.company_address || ''
       }));
     } catch (error: any) {
       console.error('❌ Exception fetching orders:', error);
@@ -584,21 +597,21 @@ export const ordersService = {
     return data ? {
       id: data.id,
       orderNumber: data.order_number,
-      customerName: data.customer_name,
-      customerEmail: data.customer_email,
-      customerPhone: data.customer_phone,
-      deliveryAddress: data.delivery_address,
-      deliveryCity: data.delivery_city,
-      deliveryCounty: data.delivery_county,
-      deliveryPostalCode: data.delivery_postal_code,
-      deliveryOption: data.delivery_option,
+      customerName: data.customer_name, // FIXED: was data.client_name
+      customerEmail: data.customer_email, // FIXED: was data.client_email
+      customerPhone: data.customer_phone, // FIXED: was data.client_phone
+      deliveryAddress: data.delivery_address, // FIXED: was data.address
+      deliveryCity: data.delivery_city, // FIXED: was data.city
+      deliveryCounty: data.delivery_county, // FIXED: was data.county
+      deliveryPostalCode: data.delivery_postal_code, // FIXED: was data.postal_code
+      deliveryOption: data.delivery_option, // FIXED: was data.delivery_method
       paymentMethod: data.payment_method,
       paymentStatus: data.payment_status,
-      items: data.items || [],
-      subtotal: data.subtotal,
-      deliveryCost: data.delivery_cost,
-      total: data.total,
-      status: data.status,
+      items: data.items || [], // FIXED: was data.canvas_items
+      subtotal: data.subtotal || 0, // FIXED: was data.total_price
+      deliveryCost: data.delivery_cost || 0, // FIXED: was hardcoded 0
+      total: data.total || 0, // FIXED: was data.total_price
+      status: data.status || 'new', // FIXED: was data.order_status
       notes: data.notes,
       createdAt: data.created_at,
       personType: data.person_type,
@@ -620,21 +633,21 @@ export const ordersService = {
       .from('orders')
       .insert([{
         order_number: orderNumber,
-        customer_name: order.customerName,
-        customer_email: order.customerEmail,
-        customer_phone: order.customerPhone,
-        delivery_address: order.deliveryAddress,
-        delivery_city: order.deliveryCity,
-        delivery_county: order.deliveryCounty,
-        delivery_postal_code: order.deliveryPostalCode,
-        delivery_option: order.deliveryOption,
+        customer_name: order.customerName, // FIXED: was client_name
+        customer_email: order.customerEmail, // FIXED: was client_email
+        customer_phone: order.customerPhone, // FIXED: was client_phone
+        delivery_address: order.deliveryAddress, // FIXED: already correct
+        delivery_city: order.deliveryCity, // FIXED: already correct
+        delivery_county: order.deliveryCounty, // FIXED: already correct
+        delivery_postal_code: order.deliveryPostalCode, // FIXED: already correct
+        delivery_option: order.deliveryOption, // FIXED: already correct
         payment_method: order.paymentMethod,
         payment_status: order.paymentStatus || 'unpaid',
-        items: order.items,
-        subtotal: order.subtotal,
-        delivery_cost: order.deliveryCost,
-        total: order.total,
-        status: 'new',
+        items: order.items, // FIXED: was canvas_items
+        subtotal: order.subtotal, // FIXED: already correct
+        delivery_cost: order.deliveryCost, // FIXED: already correct
+        total: order.total, // FIXED: already correct
+        status: 'new', // FIXED: already correct
         notes: order.notes,
         person_type: order.personType,
         company_name: order.companyName,
@@ -692,9 +705,9 @@ export const ordersService = {
     return {
       id: o.id,
       orderNumber: o.order_number,
-      customerName: o.customer_name,
-      customerEmail: o.customer_email,
-      customerPhone: o.customer_phone,
+      customerName: o.customer_name, // FIXED: was o.client_name
+      customerEmail: o.customer_email, // FIXED: was o.client_email
+      customerPhone: o.customer_phone, // FIXED: was o.client_phone
       deliveryAddress: o.delivery_address,
       deliveryCity: o.delivery_city,
       deliveryCounty: o.delivery_county,

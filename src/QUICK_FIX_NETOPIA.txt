@@ -1,0 +1,61 @@
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                    🚨 NETOPIA 401 ERROR - QUICK FIX                           ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+PROBLEM:
+  Netopia returns: {"code": 401, "message": "Missing authorization header"}
+
+SOLUTION:
+  Disable JWT verification in Supabase Dashboard
+
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║  STEP-BY-STEP FIX (5 minutes)                                                 ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+  1. Go to: https://supabase.com/dashboard
+  
+  2. Click: "Edge Functions" in left sidebar
+  
+  3. Find: "make-server-bbc0c500" 
+  
+  4. Disable: "JWT Verification" or "Require Authentication"
+  
+  5. Save changes
+
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║  TEST IT                                                                      ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+  Run this command (replace YOUR_PROJECT with your project ID):
+
+  curl -X POST https://YOUR_PROJECT.supabase.co/functions/v1/make-server-bbc0c500/netopia/ipn \
+    -H "Content-Type: application/json" \
+    -d '{}'
+
+  ✅ Should return: {"success": true}
+  ❌ Should NOT return: 401 error
+
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║  MORE INFO                                                                    ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+  📄 Complete guide:      /NETOPIA_401_QUICK_FIX.md
+  🌐 Visual guide:        /FIX_NETOPIA_401_NOW.html (open in browser)
+  📊 Full summary:        /NETOPIA_FIX_SUMMARY.md
+  🔧 Technical details:   /NETOPIA_IPN_FIX.md
+
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║  AFTER FIX                                                                    ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+  1. Test with curl (should get {"success": true})
+  2. Contact Netopia to retest integration
+  3. Payments will now auto-confirm
+  4. Invoices will generate automatically
+
+═══════════════════════════════════════════════════════════════════════════════
+
+Date: February 5, 2026
+Status: ⚠️  REQUIRES MANUAL SUPABASE DASHBOARD CONFIGURATION
+
+═══════════════════════════════════════════════════════════════════════════════

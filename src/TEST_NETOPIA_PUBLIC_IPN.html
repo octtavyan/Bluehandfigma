@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🧪 Test Netopia Public IPN</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            color: #1a1a1a;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding-bottom: 20px;
+            border-bottom: 3px solid #22c55e;
+        }
+        .header h1 {
+            font-size: 2.5em;
+            color: #22c55e;
+            margin-bottom: 10px;
+        }
+        .test-section {
+            background: #f9fafb;
+            padding: 30px;
+            margin: 30px 0;
+            border-radius: 10px;
+            border: 2px solid #e5e7eb;
+        }
+        .test-section h2 {
+            color: #667eea;
+            margin-bottom: 20px;
+        }
+        .url-box {
+            background: #1f2937;
+            color: #10b981;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            margin: 15px 0;
+            overflow-x: auto;
+            font-size: 0.9em;
+        }
+        .command-box {
+            background: #1f2937;
+            color: #60a5fa;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            margin: 15px 0;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            font-size: 0.85em;
+        }
+        .success-box {
+            background: #f0fdf4;
+            border-left: 5px solid #22c55e;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        .success-box h3 {
+            color: #22c55e;
+            margin-bottom: 10px;
+        }
+        .error-box {
+            background: #fef2f2;
+            border-left: 5px solid #ef4444;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        .error-box h3 {
+            color: #ef4444;
+            margin-bottom: 10px;
+        }
+        .step {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 10px;
+            border: 2px solid #e5e7eb;
+        }
+        .step-number {
+            display: inline-block;
+            width: 35px;
+            height: 35px;
+            background: #667eea;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 35px;
+            font-weight: bold;
+            margin-right: 15px;
+        }
+        .step h3 {
+            display: inline-block;
+            color: #667eea;
+            font-size: 1.2em;
+        }
+        .step p {
+            margin: 15px 0 15px 50px;
+            color: #4b5563;
+        }
+        .important {
+            background: #eff6ff;
+            border: 2px solid #3b82f6;
+            padding: 20px;
+            margin: 30px 0;
+            border-radius: 10px;
+        }
+        .important h3 {
+            color: #3b82f6;
+            margin-bottom: 15px;
+        }
+        .btn {
+            display: inline-block;
+            padding: 15px 30px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            margin: 10px 5px;
+            transition: all 0.3s;
+        }
+        .btn:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        .checklist {
+            background: #f9fafb;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .checklist li {
+            margin: 10px 0;
+            padding-left: 30px;
+            position: relative;
+        }
+        .checklist li:before {
+            content: "☐";
+            position: absolute;
+            left: 0;
+            font-size: 1.5em;
+            color: #667eea;
+        }
+        code {
+            background: #f3f4f6;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            color: #ef4444;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🧪 Test Netopia Public IPN</h1>
+            <p style="font-size: 1.2em; color: #6b7280;">Verifică că endpoint-ul public funcționează</p>
+        </div>
+
+        <div class="important">
+            <h3>📌 Ce Am Făcut</h3>
+            <p>Am creat un <strong>sistem nou</strong> care nu necesită JWT authentication:</p>
+            <ul style="margin-left: 20px; margin-top: 10px;">
+                <li>✅ Tabelă database pentru queue (<code>netopia_ipn_queue</code>)</li>
+                <li>✅ Endpoint public (<code>/netopia/ipn-public</code>) - fără autentificare</li>
+                <li>✅ Endpoint de procesare (<code>/netopia/process-queue</code>) - cu autentificare</li>
+                <li>✅ Procesare automată a notificărilor</li>
+            </ul>
+        </div>
+
+        <div class="test-section">
+            <h2>🎯 Test 1: Endpoint Public (Fără Autentificare)</h2>
+            
+            <div class="step">
+                <span class="step-number">1</span>
+                <h3>Înlocuiește YOUR_PROJECT</h3>
+                <p>În comanda de mai jos, înlocuiește <code>YOUR_PROJECT</code> cu ID-ul real al proiectului tău Supabase.</p>
+                <p><strong>Găsești ID-ul aici:</strong></p>
+                <ul style="margin-left: 70px;">
+                    <li>Dashboard → Settings → General → Reference ID</li>
+                    <li>SAU din URL: <code>supabase.com/dashboard/project/<strong>ABC123</strong></code></li>
+                </ul>
+            </div>
+
+            <div class="step">
+                <span class="step-number">2</span>
+                <h3>Rulează Comanda</h3>
+                <p>Deschide Terminal/Command Prompt și rulează:</p>
+                <div class="command-box">curl -X POST \
+  https://YOUR_PROJECT.supabase.co/functions/v1/make-server-bbc0c500/netopia/ipn-public \
+  -H "Content-Type: application/json" \
+  -d '{
+    "payment": {
+      "ntpID": "test-123",
+      "status": "confirmed"
+    },
+    "order": {
+      "orderID": "TEST-ORDER-001",
+      "amount": 100
+    }
+  }'</div>
+            </div>
+
+            <div class="step">
+                <span class="step-number">3</span>
+                <h3>Verifică Răspunsul</h3>
+                
+                <div class="success-box">
+                    <h3>✅ SUCCESS - Răspuns Corect:</h3>
+                    <code style="font-size: 1.1em;">{"success": true, "queued": true}</code>
+                    <p style="margin-top: 10px;"><strong>HTTP Status:</strong> 200 OK</p>
+                    <p>Asta înseamnă că endpoint-ul public funcționează! 🎉</p>
+                </div>
+
+                <div class="error-box">
+                    <h3>❌ EROARE - Dacă Vezi:</h3>
+                    <code style="font-size: 1.1em;">{"code": 401, "message": "Missing authorization header"}</code>
+                    <p style="margin-top: 10px;">Înseamnă că folosești URL-ul vechi. Asigură-te că folosești <code>/netopia/ipn-<strong>public</strong></code></p>
+                </div>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h2>🔍 Test 2: Verifică Queue Table</h2>
+            
+            <div class="step">
+                <span class="step-number">1</span>
+                <h3>Deschide Table Editor</h3>
+                <p>Supabase Dashboard → Table Editor → <code>netopia_ipn_queue</code></p>
+            </div>
+
+            <div class="step">
+                <span class="step-number">2</span>
+                <h3>Caută Entry-ul Tău</h3>
+                <p>Ar trebui să vezi un rând nou cu:</p>
+                <ul style="margin-left: 50px;">
+                    <li><code>payload</code> = datele test trimise</li>
+                    <li><code>processed</code> = true (dacă procesarea a reușit)</li>
+                    <li><code>created_at</code> = timestamp recent</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h2>📊 Test 3: Verifică Logs</h2>
+            
+            <div class="step">
+                <span class="step-number">1</span>
+                <h3>Deschide Edge Function Logs</h3>
+                <p>Supabase Dashboard → Edge Functions → <code>make-server-bbc0c500</code> → Logs</p>
+            </div>
+
+            <div class="step">
+                <span class="step-number">2</span>
+                <h3>Caută Aceste Mesaje</h3>
+                <div class="command-box">🔔 [PUBLIC IPN] Received Netopia IPN notification
+✅ [PUBLIC IPN] Queued for processing
+🔄 [PROCESS QUEUE] Processing queue item
+✅ [PROCESS QUEUE] Queue item marked as processed</div>
+                <p>Dacă vezi aceste mesaje, totul funcționează perfect!</p>
+            </div>
+        </div>
+
+        <div class="important">
+            <h3>🎯 Următorul Pas: Actualizează Netopia</h3>
+            <p>Odată ce testul de mai sus funcționează, trebuie să actualizezi configurația Netopia:</p>
+            
+            <div style="margin-top: 20px;">
+                <p><strong>URL VECHI (nu funcționează fără JWT):</strong></p>
+                <div class="url-box">https://YOUR_PROJECT.supabase.co/functions/v1/make-server-bbc0c500/netopia/ipn</div>
+            </div>
+
+            <div style="margin-top: 20px;">
+                <p><strong>URL NOU (funcționează fără JWT):</strong></p>
+                <div class="url-box">https://YOUR_PROJECT.supabase.co/functions/v1/make-server-bbc0c500/netopia/ipn-public</div>
+            </div>
+
+            <p style="margin-top: 20px;"><strong>Diferența:</strong> S-a adăugat <code>-public</code> la sfârșitul URL-ului!</p>
+        </div>
+
+        <div class="test-section">
+            <h2>📝 Cum Actualizezi Netopia</h2>
+            
+            <div class="step">
+                <span class="step-number">1</span>
+                <h3>Login în Netopia Merchant Panel</h3>
+                <p>Accesează panoul de administrare Netopia</p>
+            </div>
+
+            <div class="step">
+                <span class="step-number">2</span>
+                <h3>Găsește IPN Settings</h3>
+                <p>Caută secțiunea pentru configurarea IPN/Notify URL</p>
+            </div>
+
+            <div class="step">
+                <span class="step-number">3</span>
+                <h3>Actualizează URL-ul</h3>
+                <p>Înlocuiește URL-ul vechi cu cel nou (adaugă <code>-public</code>)</p>
+            </div>
+
+            <div class="step">
+                <span class="step-number">4</span>
+                <h3>Salvează și Testează</h3>
+                <p>Salvează modificările și roagă suportul Netopia să retesteze</p>
+            </div>
+        </div>
+
+        <div class="checklist">
+            <h3 style="margin-bottom: 15px; color: #667eea;">✅ Checklist Final</h3>
+            <ul style="list-style: none;">
+                <li>Am rulat comanda curl</li>
+                <li>Am primit răspuns {"success": true, "queued": true}</li>
+                <li>Am verificat tabelul netopia_ipn_queue</li>
+                <li>Am verificat logs-urile Edge Function</li>
+                <li>Am actualizat URL-ul în Netopia (adăugat -public)</li>
+                <li>Am contactat Netopia pentru retest</li>
+            </ul>
+        </div>
+
+        <div class="success-box">
+            <h3>🎉 După Ce Funcționează</h3>
+            <p>Odată ce Netopia confirmă că primesc HTTP 200:</p>
+            <ul style="margin-left: 20px; margin-top: 10px;">
+                <li>✅ Plățile vor fi confirmate automat</li>
+                <li>✅ Comenzile vor fi create în sistem</li>
+                <li>✅ Email-urile de confirmare vor fi trimise</li>
+                <li>✅ Facturile vor fi generate automat</li>
+            </ul>
+        </div>
+
+        <div style="text-align: center; margin-top: 40px; padding: 20px; background: #f9fafb; border-radius: 10px;">
+            <p style="color: #6b7280;">
+                <strong>Data:</strong> 5 Februarie 2026<br>
+                <strong>Soluție:</strong> Queue-based public IPN endpoint<br>
+                <strong>Status:</strong> ✅ Gata de testare
+            </p>
+            <p style="margin-top: 15px;">
+                <strong>Documentație completă:</strong> /NETOPIA_PUBLIC_IPN_SOLUTION.md
+            </p>
+        </div>
+    </div>
+</body>
+</html>

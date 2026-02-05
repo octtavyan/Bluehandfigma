@@ -1,0 +1,49 @@
+🔧 SIMPLE UPDATE GUIDE
+
+Your Pipedream URL: https://eokrex1e5lzckse.m.pipedream.net
+
+========================================
+FIND THIS (all 7 times in the file):
+========================================
+
+/functions/v1/make-server-bbc0c500/netopia/ipn-public?apikey=${anonKey}
+
+========================================
+REPLACE WITH:
+========================================
+
+https://eokrex1e5lzckse.m.pipedream.net
+
+========================================
+HOW TO DO IT:
+========================================
+
+1. Open /supabase/functions/server/index.tsx in your code editor
+2. Press Ctrl+H (or Cmd+H on Mac) to open Find & Replace  
+3. In "Find": paste this EXACTLY:
+   /functions/v1/make-server-bbc0c500/netopia/ipn-public?apikey=${anonKey}
+
+4. In "Replace": paste:
+   https://eokrex1e5lzckse.m.pipedream.net
+
+5. Click "Replace All" (should find 7 occurrences)
+
+DONE! ✅
+
+========================================
+OR MANUAL METHOD:
+========================================
+
+Search for "ipn-public" in the file.
+You'll find it 7 times.
+Each time, replace the URL part with: https://eokrex1e5lzckse.m.pipedream.net
+
+The patterns look like:
+- notifyUrl: `https://...ipn-public?apikey=...`
+- confirm: `https://...ipn-public?apikey=...`
+- <confirm>${escapeXml(`https://...ipn-public?apikey=...`)}</confirm>
+
+========================================
+
+After updating, SAVE and let Figma Make deploy!
+Then test with a real payment! 🚀

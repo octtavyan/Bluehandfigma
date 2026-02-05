@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
-import { Plus, Edit2, Trash2, ToggleLeft, ToggleRight } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Plus, Edit2, Trash2, ToggleLeft, ToggleRight, Package } from 'lucide-react';
 import { AdminLayout } from '../../components/admin/AdminLayout';
 import { useAdmin, CanvasSize } from '../../context/AdminContext';
+import { CacheService, CACHE_KEYS } from '../../lib/cacheService';
 
 export const AdminSizesPage: React.FC = () => {
-  const { sizes, addSize, updateSize, deleteSize } = useAdmin();
+  const { sizes, addSize, updateSize, deleteSize, refreshData } = useAdmin();
   const [showModal, setShowModal] = useState(false);
   const [editingSize, setEditingSize] = useState<CanvasSize | null>(null);
   
@@ -16,8 +17,19 @@ export const AdminSizesPage: React.FC = () => {
     isActive: true,
     supportsPrintCanvas: true,
     supportsPrintHartie: true,
+    stock: 10, // Default stock
   });
-
+  
+  // Force fresh data load on mount by clearing cache and reloading
+  useEffect(() => {
+    const loadFreshData = async () => {
+      console.log('🔄 AdminSizesPage mounted - clearing sizes cache and loading fresh data');
+      CacheService.delete(CACHE_KEYS.SIZES);
+      await refreshData();
+    };
+    loadFreshData();
+  }, []);
+  
   const handleOpenAddModal = () => {
     setSizeForm({
       width: 0,
@@ -27,13 +39,13 @@ export const AdminSizesPage: React.FC = () => {
       isActive: true,
       supportsPrintCanvas: true,
       supportsPrintHartie: true,
+      stock: 10, // Default stock
     });
     setEditingSize(null);
     setShowModal(true);
   };
 
   const handleOpenEditModal = (size: CanvasSize) => {
-    console.log('📝 Opening edit modal for size:', size);
     setEditingSize(size);
     setSizeForm({
       width: size.width || 0,
@@ -43,6 +55,7 @@ export const AdminSizesPage: React.FC = () => {
       isActive: size.isActive !== false,
       supportsPrintCanvas: size.supportsPrintCanvas !== false,
       supportsPrintHartie: size.supportsPrintHartie !== false,
+      stock: size.stock ?? 0, // Use nullish coalescing to preserve 0 values
     });
     setShowModal(true);
   };
@@ -64,6 +77,7 @@ export const AdminSizesPage: React.FC = () => {
           isActive: sizeForm.isActive !== false,
           supportsPrintCanvas: sizeForm.supportsPrintCanvas === true,
           supportsPrintHartie: sizeForm.supportsPrintHartie === true,
+          stock: sizeForm.stock ?? 0, // Use nullish coalescing to preserve 0 values
         });
       } else {
         // Add new size
@@ -75,6 +89,7 @@ export const AdminSizesPage: React.FC = () => {
           isActive: sizeForm.isActive !== false,
           supportsPrintCanvas: sizeForm.supportsPrintCanvas === true,
           supportsPrintHartie: sizeForm.supportsPrintHartie === true,
+          stock: sizeForm.stock ?? 10, // Default to 10 for new sizes, preserve 0 if explicitly set
         });
       }
 
@@ -88,6 +103,7 @@ export const AdminSizesPage: React.FC = () => {
         isActive: true,
         supportsPrintCanvas: true,
         supportsPrintHartie: true,
+        stock: 10, // Default stock
       });
     } catch (error) {
       console.error('❌ Error saving size:', error);
@@ -125,13 +141,15 @@ export const AdminSizesPage: React.FC = () => {
           <h1 className="text-2xl sm:text-3xl text-gray-900 mb-2">Dimensiuni & Prețuri</h1>
           <p className="text-sm sm:text-base text-gray-600">Gestionează dimensiunile, prețurile canvas-urilor și ramelor</p>
         </div>
-        <button
-          onClick={handleOpenAddModal}
-          className="inline-flex items-center justify-center space-x-2 px-4 sm:px-6 py-3 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors"
-        >
-          <Plus className="w-5 h-5" />
-          <span>Adaugă Dimensiune</span>
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={handleOpenAddModal}
+            className="inline-flex items-center justify-center space-x-2 px-4 sm:px-6 py-3 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors"
+          >
+            <Plus className="w-5 h-5" />
+            <span>Adaugă Dimensiune</span>
+          </button>
+        </div>
       </div>
 
       {/* Sizes - Mobile Card View */}
@@ -144,6 +162,8 @@ export const AdminSizesPage: React.FC = () => {
           sortedSizes.map((size) => {
             const finalPrice = calculateFinalPrice(size.price || 0, size.discount || 0);
             const hasDiscount = (size.discount || 0) > 0;
+            const stock = size.stock || 0;
+            const lowStock = stock < 5;
 
             return (
               <div
@@ -196,12 +216,18 @@ export const AdminSizesPage: React.FC = () => {
                     <div className="text-gray-900">{(size.price || 0).toFixed(2)} lei</div>
                   </div>
                   <div>
+                    <div className="text-xs text-gray-500 mb-1">Stoc</div>
+                    <div className={`font-semibold ${lowStock ? 'text-red-600' : 'text-gray-900'}`}>
+                      {stock} buc.
+                    </div>
+                  </div>
+                  <div>
                     <div className="text-xs text-gray-500 mb-1">Discount</div>
                     <div className={hasDiscount ? 'text-red-600' : 'text-gray-900'}>
                       {size.discount || 0}%
                     </div>
                   </div>
-                  <div className="col-span-2">
+                  <div>
                     <div className="text-xs text-gray-500 mb-1">Preț Final</div>
                     <div className="text-lg text-blue-600">
                       {finalPrice.toFixed(2)} lei
@@ -238,6 +264,9 @@ export const AdminSizesPage: React.FC = () => {
                   Preț Final
                 </th>
                 <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase tracking-wider">
+                  Stoc
+                </th>
+                <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase tracking-wider">
                   Status
                 </th>
                 <th className="px-6 py-3 text-right text-xs text-gray-500 uppercase tracking-wider">
@@ -248,7 +277,7 @@ export const AdminSizesPage: React.FC = () => {
             <tbody className="divide-y divide-gray-200">
               {sortedSizes.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
                     Nicio dimensiune definită
                   </td>
                 </tr>
@@ -256,6 +285,8 @@ export const AdminSizesPage: React.FC = () => {
                 sortedSizes.map((size) => {
                   const finalPrice = calculateFinalPrice(size.price || 0, size.discount || 0);
                   const hasDiscount = (size.discount || 0) > 0;
+                  const stock = size.stock || 0;
+                  const lowStock = stock < 5;
 
                   return (
                     <tr
@@ -283,6 +314,11 @@ export const AdminSizesPage: React.FC = () => {
                               {(size.price || 0).toFixed(2)} lei
                             </div>
                           )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className={`text-sm font-semibold ${lowStock ? 'text-red-600' : 'text-gray-900'}`}>
+                          {stock}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -340,6 +376,7 @@ export const AdminSizesPage: React.FC = () => {
                 isActive: true,
                 supportsPrintCanvas: true,
                 supportsPrintHartie: true,
+                stock: 10, // Default stock
               });
             }
           }}
@@ -347,7 +384,7 @@ export const AdminSizesPage: React.FC = () => {
           <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
             <div className="p-6">
               <h2 className="text-xl text-gray-900 mb-6">
-                {editingSize ? `Editează Dimensiune (ID: ${editingSize.id})` : 'Adaugă Dimensiune'}
+                {editingSize ? `Editează Dimensiune (ID: ${editingSize.id.slice(0, 8)}...)` : 'Adaugă Dimensiune'}
               </h2>
 
               {/* Size Details Section */}
@@ -422,6 +459,33 @@ export const AdminSizesPage: React.FC = () => {
                       max="100"
                     />
                   </div>
+                </div>
+
+                {/* Stock Input */}
+                <div>
+                  <label className="block text-sm text-gray-700 mb-1">
+                    <Package className="inline w-4 h-4 mr-1" />
+                    Stoc Disponibil (bucăți)
+                  </label>
+                  <input
+                    type="number"
+                    value={sizeForm.stock || 0}
+                    onChange={(e) =>
+                      setSizeForm({
+                        ...sizeForm,
+                        stock: Math.max(0, parseInt(e.target.value) || 0), // Don't allow negative
+                      })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    min="0"
+                    placeholder="ex: 10"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Stocul va fi decrementat automat când comenzile sunt marcate ca livrate.
+                    {(sizeForm.stock || 0) < 5 && (
+                      <span className="text-red-600 font-semibold"> ⚠️ Stoc scăzut!</span>
+                    )}
+                  </p>
                 </div>
 
                 <div className="flex items-center">
@@ -509,6 +573,7 @@ export const AdminSizesPage: React.FC = () => {
                       isActive: true,
                       supportsPrintCanvas: true,
                       supportsPrintHartie: true,
+                      stock: 10, // Default stock
                     });
                   }}
                   className="px-6 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"

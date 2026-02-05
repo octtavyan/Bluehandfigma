@@ -28,6 +28,7 @@ export interface CanvasSize {
   isActive: boolean;
   supportsPrintCanvas: boolean; // NEW: Size supports Print Canvas
   supportsPrintHartie: boolean; // NEW: Size supports Print Hartie
+  stock?: number; // Inventory stock count
   framePrices?: Record<string, { 
     price: number; 
     discount: number;
@@ -150,6 +151,11 @@ export interface OrderItem {
     height: number; // cm
     width: number; // cm
   };
+  // FGO Invoice fields (optional - for fiscal invoice integration)
+  fgoInvoiceNumber?: string; // e.g., "0001"
+  fgoInvoiceSerie?: string; // e.g., "TIN" or "TINY"
+  fgoInvoiceLink?: string; // Link to view/download the FGO invoice
+  fgoInvoiceGeneratedAt?: string; // Timestamp when FGO invoice was generated
 }
 
 export interface Client {
@@ -421,6 +427,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         isActive: s.isActive !== undefined ? s.isActive : true,
         supportsPrintCanvas: s.supportsPrintCanvas ?? true,
         supportsPrintHartie: s.supportsPrintHartie ?? true,
+        stock: s.stock ?? 0, // Use nullish coalescing to preserve 0 values
         framePrices: s.framePrices || {}
       })) : [];
       
@@ -859,6 +866,99 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, [currentUser, orders.length]);
 
+  // ONE-TIME AUTOMATIC STOCK UPDATE: Update stock from current inventory
+  useEffect(() => {
+    const updateStockFromInventory = async () => {
+      // Check if stock update has already been done
+      const stockUpdateDone = localStorage.getItem('stock_inventory_update_2025_done');
+      
+      if (stockUpdateDone === 'true') {
+        return;
+      }
+
+      // Check if sizes are loaded
+      if (sizes.length === 0 || !currentUser) {
+        return;
+      }
+
+      try {
+        console.log('📦 Starting automatic stock update from inventory...');
+        
+        // Stock levels from the inventory image
+        const inventoryStock: { [key: string]: number } = {
+          // Square sizes (width only, assume square)
+          '200x200': 2,
+          '160x160': 2,
+          '140x140': 4,
+          // Rectangular sizes
+          '100x150': 2,
+          '90x120': 2,
+          '80x120': 2,
+          '70x100': 2,
+          '60x90': 2,
+          '50x90': 4,
+          '50x80': 4,
+          '50x70': 4,
+          '40x60': 4,
+          '35x50': 4,
+          '30x50': 4,
+          '30x40': 4,
+          '20x50': 4,
+          '20x40': 10,
+          '20x30': 10,
+          '10x14': 10
+        };
+
+        let updatedCount = 0;
+        let unavailableCount = 0;
+
+        for (const size of sizes) {
+          const sizeKey = `${size.width}x${size.height}`;
+          const stockLevel = inventoryStock[sizeKey];
+
+          if (stockLevel !== undefined) {
+            // Size found in inventory - update with stock level
+            await updateSize(size.id, { 
+              stock: stockLevel,
+              available: stockLevel > 0 // Set available based on stock
+            });
+            updatedCount++;
+            console.log(`✅ Updated ${sizeKey}: stock=${stockLevel}, available=${stockLevel > 0}`);
+          } else {
+            // Size not in inventory - set to 0 and unavailable
+            await updateSize(size.id, { 
+              stock: 0,
+              available: false
+            });
+            unavailableCount++;
+            console.log(`❌ Set ${sizeKey} to unavailable (stock=0)`);
+          }
+        }
+
+        toast.success(`📦 Stoc actualizat automat! ${updatedCount} dimensiuni cu stoc, ${unavailableCount} fără stoc`, {
+          duration: 5000
+        });
+        
+        localStorage.setItem('stock_inventory_update_2025_done', 'true');
+        
+        // Reload data to reflect changes
+        await loadData();
+      } catch (error) {
+        console.error('Error during automatic stock update:', error);
+        toast.error('Eroare la actualizarea automată a stocului');
+      }
+    };
+
+    // Run stock update after data loads
+    if (currentUser && sizes.length > 0) {
+      const timeoutId = setTimeout(() => {
+        updateStockFromInventory();
+      }, 2000); // Run after 2 seconds to ensure data is loaded
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [currentUser, sizes.length]);
+
   // Auto-refresh orders every 10 minutes when user is logged in
   // DISABLED to reduce egress bandwidth consumption
   // Re-enable only if upgraded to Supabase Pro plan
@@ -1190,9 +1290,12 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
 
       // Determine payment status based on payment method
-      // Card payments will be automatically paid (implemented later)
-      // Cash on delivery will be unpaid until delivery
-      const paymentStatus: 'paid' | 'unpaid' = orderData.paymentMethod === 'card' ? 'paid' : 'unpaid';
+      // Card payments will be 'paid' status
+      // Cash on delivery will be 'cod' status
+      const paymentStatus: 'paid' | 'unpaid' | 'cod' = 
+        orderData.paymentMethod === 'card' ? 'paid' : 
+        orderData.paymentMethod === 'cash' ? 'cod' : 
+        'unpaid';
 
       // Create order - ordersService will generate the order number
       const createdOrder = await ordersService.create({
@@ -1250,9 +1353,111 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
+  // Helper function to decrement stock when order is delivered
+  const decrementStockForOrder = async (order: OrderItem) => {
+    try {
+      console.log('📦 [STOCK] Decrementing stock for order:', order.orderNumber);
+      console.log('📦 [STOCK] Order has', order.canvasItems.length, 'canvas items');
+      
+      // Extract size information from order items
+      for (const item of order.canvasItems) {
+        console.log('📦 [STOCK] Processing item:', { size: item.size, type: item.type });
+        
+        // Parse size (e.g., "30 × 40" or "30x40")
+        const sizeMatch = item.size?.match(/(\d+)\s*[×x]\s*(\d+)/);
+        if (!sizeMatch) {
+          console.warn('⚠️ [STOCK] Could not parse size from:', item.size);
+          continue;
+        }
+        
+        const width = parseInt(sizeMatch[1]);
+        const height = parseInt(sizeMatch[2]);
+        
+        console.log(`📦 [STOCK] Parsed dimensions: ${width} × ${height}`);
+        
+        // Find the matching size in our sizes array
+        const matchingSize = sizes.find(s => s.width === width && s.height === height);
+        if (!matchingSize) {
+          console.warn(`⚠️ Size ${width}×${height} not found in inventory`);
+          continue;
+        }
+        
+        console.log(`📦 [STOCK] Found matching size:`, matchingSize);
+        
+        // Decrement stock
+        const currentStock = matchingSize.stock || 0;
+        const newStock = Math.max(0, currentStock - 1); // Don't go below 0
+        
+        console.log(`📦 [STOCK] Updating stock: ${currentStock} → ${newStock}`);
+        
+        // Update the size stock silently (no toast)
+        await updateSize(matchingSize.id, { stock: newStock }, { silent: true });
+        
+        console.log(`📦 Stock updated for ${width}×${height}: ${currentStock} → ${newStock}`);
+      }
+      
+      console.log('📦 [STOCK] Stock updates complete');
+      
+      // Reload sizes data to ensure UI is updated
+      const freshSizesData = await canvasSizesService.getAll();
+      const convertedSizes = freshSizesData.map(s => ({
+        id: s.id,
+        width: s.width,
+        height: s.height,
+        price: s.price,
+        discount: s.discount || 0,
+        isActive: s.isActive !== undefined ? s.isActive : true,
+        supportsPrintCanvas: s.supportsPrintCanvas ?? true,
+        supportsPrintHartie: s.supportsPrintHartie ?? true,
+        stock: s.stock ?? 0, // Use nullish coalescing to preserve 0 values
+        framePrices: s.framePrices || {}
+      }));
+      setSizes(convertedSizes);
+      CacheService.set(CACHE_KEYS.SIZES, freshSizesData, CACHE_TTL.SIZES);
+    } catch (error) {
+      console.error('❌ Error decrementing stock:', error);
+      // Don't throw - we don't want to block order status update if stock update fails
+    }
+  };
+
   const updateOrderStatus = async (orderId: string, newStatus: OrderStatus, reason?: string, changedBy?: string) => {
     try {
+      console.log('📝 [ORDER STATUS] Updating order status:', { orderId, newStatus, reason, changedBy });
       const order = orders.find(o => o.id === orderId);
+      console.log('📝 [ORDER STATUS] Found order:', order?.orderNumber);
+      
+      // 📦 Decrement stock when order is delivered
+      if (newStatus === 'delivered' && order) {
+        console.log('📦 [ORDER STATUS] Order is being marked as delivered, decrementing stock...');
+        await decrementStockForOrder(order);
+      }
+      
+      // 🔄 Sync invoices when status changes to ensure FGO and PDF match
+      if (order?.orderNumber) {
+        console.log('🔄 [ORDER STATUS] Syncing invoices for order...');
+        try {
+          const syncResponse = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/invoice/sync`,
+            {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${publicAnonKey}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ orderNumber: order.orderNumber })
+            }
+          );
+          
+          if (syncResponse.ok) {
+            console.log('✅ [ORDER STATUS] Invoices synced successfully');
+          } else {
+            console.warn('⚠️ [ORDER STATUS] Invoice sync failed, continuing with status update');
+          }
+        } catch (syncError) {
+          console.error('❌ [ORDER STATUS] Error syncing invoices:', syncError);
+          // Continue with status update even if sync fails
+        }
+      }
       
       // Preserve existing notes when updating status
       const updateData: any = {
@@ -1753,7 +1958,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  const updateSize = async (sizeId: string, updates: Partial<CanvasSize>) => {
+  const updateSize = async (sizeId: string, updates: Partial<CanvasSize>, options?: { silent?: boolean }) => {
     try {
       const updatedSize = await canvasSizesService.update(sizeId, updates);
       setSizes(prev => prev.map(size => 
@@ -1763,7 +1968,9 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       // Clear cache to force fresh data on next load
       CacheService.delete(CACHE_KEYS.SIZES);
       
-      toast.success('Dimensiune actualizată cu succes!');
+      if (!options?.silent) {
+        toast.success('Dimensiune actualizată cu succes!');
+      }
     } catch (error) {
       console.error('Error updating size:', error);
       toast.error('Eroare la actualizarea dimensiunii');

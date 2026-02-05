@@ -265,9 +265,32 @@ export const CheckoutPage = () => {
           const gatewayData = await gatewayResponse.json();
           const activeGateway = gatewayData.settings?.activeGateway || 'netopia';
 
-          // For card payment, we need to create a temporary order ID
-          // Generate a unique order number for payment
-          const tempOrderNumber = `BHC-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-TEMP-${Date.now().toString().slice(-4)}`;
+          // STEP 1: Generate the REAL sequential order number FIRST
+          console.log('🔢 Generating sequential order number...');
+          const orderNumberResponse = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/orders/generate-number`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${publicAnonKey}`,
+              },
+            }
+          );
+
+          if (!orderNumberResponse.ok) {
+            throw new Error('Failed to generate order number');
+          }
+
+          const orderNumberData = await orderNumberResponse.json();
+          const realOrderNumber = orderNumberData.orderNumber; // e.g. "BHC-20260130-0007"
+          
+          // STEP 2: Use the REAL order number for Netopia (add CARD- prefix for tracking)
+          const tempOrderNumber = realOrderNumber.replace(/-(\d{4})$/, '-CARD-$1');
+          // Result: "BHC-20260130-CARD-0007" (same sequence number, just with CARD marker)
+          
+          console.log(`✅ Real order number: ${realOrderNumber}`);
+          console.log(`✅ Netopia tracking ID: ${tempOrderNumber}`);
 
           // Use the appropriate payment endpoint based on active gateway
           const paymentEndpoint = activeGateway === 'revolut' 
@@ -289,7 +312,7 @@ export const CheckoutPage = () => {
                 customerName: `${formData.firstName} ${formData.lastName}`,
                 customerPhone: formData.phone,
                 customerAddress: `${formData.address}, ${formData.city}, ${formData.county}`,
-                returnUrl: `${window.location.origin}/payment-success`,
+                returnUrl: `${window.location.origin}/payment-success?orderId=${tempOrderNumber}`,
                 // Include all order data for later creation after payment success
                 orderData: {
                   clientName: `${formData.firstName} ${formData.lastName}`,
@@ -322,10 +345,12 @@ export const CheckoutPage = () => {
 
           const paymentData = await paymentResponse.json();
 
-          // Get redirect URL (different property names for different gateways)
-          const redirectUrl = paymentData.redirectUrl || paymentData.paymentUrl;
+          // Get the payment gateway URL (this is where the user enters card details)
+          // NOTE: paymentUrl/paymentURL is the Netopia payment page
+          //       redirectUrl is where Netopia will send the user AFTER payment
+          const netopiaPaymentUrl = paymentData.paymentUrl || paymentData.paymentURL;
 
-          if (paymentData.success && redirectUrl) {
+          if (paymentData.success && netopiaPaymentUrl) {
             // Save order data to sessionStorage so we can create it after payment success
             sessionStorage.setItem('pendingOrderData', JSON.stringify({
               clientName: `${formData.firstName} ${formData.lastName}`,
@@ -351,8 +376,8 @@ export const CheckoutPage = () => {
             // Clear cart before redirect (will be restored if payment fails)
             clearCart();
             
-            // Redirect to payment gateway
-            window.location.href = redirectUrl;
+            // Redirect to Netopia payment gateway (NOT our payment-success page!)
+            window.location.href = netopiaPaymentUrl;
             
             return; // Don't continue to confirmation step
           } else {

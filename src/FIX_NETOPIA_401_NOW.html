@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🚨 Fix Netopia 401 Error - Action Required</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            color: #1a1a1a;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding-bottom: 20px;
+            border-bottom: 3px solid #ef4444;
+        }
+        .header h1 {
+            font-size: 2.5em;
+            color: #ef4444;
+            margin-bottom: 10px;
+        }
+        .error-box {
+            background: #fef2f2;
+            border-left: 5px solid #ef4444;
+            padding: 20px;
+            margin: 30px 0;
+            border-radius: 8px;
+        }
+        .error-box h3 {
+            color: #ef4444;
+            margin-bottom: 10px;
+        }
+        .error-box code {
+            background: #fff;
+            padding: 15px;
+            display: block;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            margin-top: 10px;
+            border: 1px solid #fecaca;
+        }
+        .solution-box {
+            background: #f0fdf4;
+            border-left: 5px solid #22c55e;
+            padding: 20px;
+            margin: 30px 0;
+            border-radius: 8px;
+        }
+        .solution-box h3 {
+            color: #22c55e;
+            margin-bottom: 15px;
+        }
+        .step {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 10px;
+            border: 2px solid #e5e7eb;
+        }
+        .step-number {
+            display: inline-block;
+            width: 35px;
+            height: 35px;
+            background: #667eea;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 35px;
+            font-weight: bold;
+            margin-right: 15px;
+        }
+        .step h4 {
+            display: inline-block;
+            color: #667eea;
+            font-size: 1.2em;
+        }
+        .step p {
+            margin: 15px 0 15px 50px;
+            color: #4b5563;
+        }
+        .step ul {
+            margin-left: 70px;
+            color: #4b5563;
+        }
+        .step li {
+            margin: 8px 0;
+        }
+        .command-box {
+            background: #1f2937;
+            color: #10b981;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            margin: 15px 0 15px 50px;
+            overflow-x: auto;
+        }
+        .warning {
+            background: #fffbeb;
+            border-left: 5px solid #f59e0b;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        .warning strong {
+            color: #f59e0b;
+        }
+        .success {
+            background: #f0fdf4;
+            border-left: 5px solid #22c55e;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        .success strong {
+            color: #22c55e;
+        }
+        .important {
+            background: #eff6ff;
+            border: 2px solid #3b82f6;
+            padding: 20px;
+            margin: 30px 0;
+            border-radius: 10px;
+            text-align: center;
+        }
+        .important h3 {
+            color: #3b82f6;
+            margin-bottom: 15px;
+            font-size: 1.5em;
+        }
+        .btn {
+            display: inline-block;
+            padding: 15px 30px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            margin: 10px;
+            transition: all 0.3s;
+        }
+        .btn:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        .checklist {
+            background: #f9fafb;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .checklist li {
+            margin: 10px 0;
+            padding-left: 30px;
+            position: relative;
+        }
+        .checklist li:before {
+            content: "☐";
+            position: absolute;
+            left: 0;
+            font-size: 1.5em;
+            color: #667eea;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚨 URGENT: Fix Netopia 401 Error</h1>
+            <p style="font-size: 1.2em; color: #6b7280;">Action Required in Supabase Dashboard</p>
+        </div>
+
+        <div class="error-box">
+            <h3>❌ Current Problem</h3>
+            <p><strong>Netopia raportează:</strong></p>
+            <code>{"code": 401, "message": "Missing authorization header"}</code>
+            <p style="margin-top: 15px;">
+                <strong>Ce înseamnă:</strong> Plățile funcționează, dar Netopia nu poate confirma plățile prin webhook 
+                pentru că endpoint-ul tău necesită autentificare.
+            </p>
+        </div>
+
+        <div class="important">
+            <h3>⚠️ ATENȚIE: Configurare Manuală Necesară</h3>
+            <p>Acest lucru <strong>NU poate fi automatizat</strong> din Figma Make.</p>
+            <p>Trebuie să configurezi manual în <strong>Supabase Dashboard</strong>.</p>
+        </div>
+
+        <div class="solution-box">
+            <h3>✅ Soluția: Dezactivează JWT Verification</h3>
+            <p>Urmează pașii de mai jos pentru a permite Netopia să trimită notificări de plată.</p>
+        </div>
+
+        <div class="step">
+            <span class="step-number">1</span>
+            <h4>Deschide Supabase Dashboard</h4>
+            <p>Accesează dashboard-ul Supabase:</p>
+            <div class="command-box">https://supabase.com/dashboard</div>
+            <p>Alege proiectul tău BlueHand Canvas.</p>
+        </div>
+
+        <div class="step">
+            <span class="step-number">2</span>
+            <h4>Navighează la Edge Functions</h4>
+            <p>În sidebar-ul din stânga:</p>
+            <ul>
+                <li>Caută secțiunea <strong>"Edge Functions"</strong></li>
+                <li>SAU mergi direct la: <code>supabase.com/dashboard/project/[PROJECT_ID]/functions</code></li>
+            </ul>
+        </div>
+
+        <div class="step">
+            <span class="step-number">3</span>
+            <h4>Găsește Funcția</h4>
+            <p>În lista de funcții, caută:</p>
+            <div class="command-box">make-server-bbc0c500</div>
+            <p>Click pe numele funcției pentru a deschide setările.</p>
+        </div>
+
+        <div class="step">
+            <span class="step-number">4</span>
+            <h4>Dezactivează JWT Verification</h4>
+            <p>Caută una dintre următoarele opțiuni:</p>
+            <ul>
+                <li>🔍 <strong>"Authentication"</strong></li>
+                <li>🔍 <strong>"JWT Verification"</strong></li>
+                <li>🔍 <strong>"Require Authentication"</strong></li>
+                <li>🔍 <strong>"Verify JWT"</strong></li>
+            </ul>
+            <p><strong style="color: #ef4444;">DEZACTIVEAZĂ</strong> această opțiune (toggle OFF).</p>
+        </div>
+
+        <div class="step">
+            <span class="step-number">5</span>
+            <h4>Salvează Modificările</h4>
+            <p>Click pe <strong>"Save"</strong> sau <strong>"Update"</strong>.</p>
+            <p>Așteaptă câteva secunde pentru ca modificările să aibă efect.</p>
+        </div>
+
+        <div class="step">
+            <span class="step-number">6</span>
+            <h4>Testează Endpoint-ul</h4>
+            <p>Deschide Terminal/Command Prompt și rulează:</p>
+            <div class="command-box">curl -X POST https://YOUR_PROJECT.supabase.co/functions/v1/make-server-bbc0c500/netopia/ipn \
+  -H "Content-Type: application/json" \
+  -d '{}'</div>
+            <p><strong>Înlocuiește YOUR_PROJECT</strong> cu ID-ul real al proiectului tău!</p>
+            
+            <div class="success">
+                <strong>✅ Răspuns corect:</strong> <code>{"success": true}</code>
+            </div>
+            
+            <div class="error-box">
+                <strong>❌ Dacă vezi în continuare:</strong> 
+                <code>{"code": 401, "message": "Missing authorization header"}</code>
+                <p style="margin-top: 10px;">Înseamnă că setarea nu a fost aplicată corect. Reîncearcă pașii 3-5.</p>
+            </div>
+        </div>
+
+        <div class="step">
+            <span class="step-number">7</span>
+            <h4>Contactează Netopia</h4>
+            <p>După ce testul de mai sus funcționează (primești <code>{"success": true}</code>), contactează suportul Netopia:</p>
+            <ul>
+                <li>📧 Trimite-le email cerându-le să retesteze integrarea</li>
+                <li>✅ Spune-le că ai rezolvat problema 401</li>
+                <li>🔄 Roagă-i să trimită din nou notificări test</li>
+            </ul>
+        </div>
+
+        <div class="warning">
+            <strong>⚠️ DE CE ESTE SIGUR?</strong><br>
+            Dezactivarea autentificării pentru acest endpoint este <strong>sigură</strong> pentru că:
+            <ul style="margin-top: 10px;">
+                <li>✅ Validăm datele de plată folosind semnăturile Netopia</li>
+                <li>✅ Nu expunem date sensibile</li>
+                <li>✅ Este practica standard pentru webhook-uri de plată</li>
+                <li>✅ Toate gateway-urile (Stripe, PayPal, etc.) folosesc endpoint-uri publice</li>
+            </ul>
+        </div>
+
+        <div class="checklist">
+            <h3 style="margin-bottom: 15px; color: #667eea;">📋 Checklist Final</h3>
+            <ul style="list-style: none;">
+                <li>Am accesat Supabase Dashboard</li>
+                <li>Am găsit funcția make-server-bbc0c500</li>
+                <li>Am dezactivat JWT Verification</li>
+                <li>Am salvat modificările</li>
+                <li>Am testat endpoint-ul cu curl</li>
+                <li>Primesc răspuns {"success": true}</li>
+                <li>Am contactat Netopia pentru retest</li>
+            </ul>
+        </div>
+
+        <div class="important">
+            <h3>🎯 Rezultat Final</h3>
+            <p>După aplicarea acestor pași:</p>
+            <p>✅ Netopia va primi HTTP 200 în loc de 401</p>
+            <p>✅ Notificările de plată vor funcționa</p>
+            <p>✅ Comenzile vor fi confirmate automat</p>
+        </div>
+
+        <div style="text-align: center; margin-top: 40px; padding: 20px; background: #f9fafb; border-radius: 10px;">
+            <p style="color: #6b7280;">
+                <strong>Data:</strong> 5 Februarie 2026<br>
+                <strong>Problema:</strong> Netopia IPN returnează 401 Unauthorized<br>
+                <strong>Soluția:</strong> Dezactivează JWT verification în Supabase Dashboard
+            </p>
+        </div>
+    </div>
+</body>
+</html>

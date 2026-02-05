@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
-import { Search, Filter, Download, Eye, Trash2, CheckSquare, Square, MessageSquare } from 'lucide-react';
+import { Search, Filter, Download, Eye, Trash2, CheckSquare, Square, MessageSquare, CreditCard, Banknote, MoreVertical, X } from 'lucide-react';
 import { AdminLayout } from '../../components/admin/AdminLayout';
 import { useAdmin, OrderStatus } from '../../context/AdminContext';
 import { toast } from 'sonner@2.0.3';
@@ -21,6 +21,7 @@ export const AdminOrdersPage: React.FC = () => {
   const [bulkStatusModalOpen, setBulkStatusModalOpen] = useState(false);
   const [bulkNewStatus, setBulkNewStatus] = useState<OrderStatus | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [openActionsMenu, setOpenActionsMenu] = useState<string | null>(null);
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -44,10 +45,15 @@ export const AdminOrdersPage: React.FC = () => {
   }, []);
 
   const filteredOrders = orders.filter(order => {
+    // Remove # symbol from search term if present to match order numbers
+    const cleanSearchTerm = searchTerm.trim().replace(/^#/, '');
+    
     const matchesSearch = 
-      order.clientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      order.clientEmail.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      order.id.toLowerCase().includes(searchTerm.toLowerCase());
+      (order.clientName || '').toLowerCase().includes(cleanSearchTerm.toLowerCase()) ||
+      (order.clientEmail || '').toLowerCase().includes(cleanSearchTerm.toLowerCase()) ||
+      (order.clientPhone || '').toLowerCase().includes(cleanSearchTerm.toLowerCase()) ||
+      (order.orderNumber || '').toLowerCase().includes(cleanSearchTerm.toLowerCase()) ||
+      (order.id || '').toLowerCase().includes(cleanSearchTerm.toLowerCase());
     
     const matchesStatus = statusFilter.length === 0 || statusFilter.includes(order.status);
 
@@ -113,8 +119,7 @@ export const AdminOrdersPage: React.FC = () => {
     }
   };
 
-  const handleStatusChange = async (orderId: string, currentStatus: OrderStatus, newStatus: OrderStatus) => {
-    // Statuses that require a reason/note: 'queue', 'returned', 'closed'
+  const handleStatusChange = async (orderId: string, newStatus: OrderStatus, currentStatus: OrderStatus) => {
     const requiresReason = newStatus === 'queue' || newStatus === 'returned' || newStatus === 'closed';
     
     if (requiresReason) {
@@ -169,11 +174,9 @@ export const AdminOrdersPage: React.FC = () => {
         const invoiceData = await invoiceResponse.json();
         if (invoiceData.success && invoiceData.cloudinaryUrl) {
           invoiceUrl = invoiceData.cloudinaryUrl;
-          console.log('✅ Invoice generated:', invoiceUrl);
         }
       } catch (invoiceError) {
-        console.error('⚠️ Failed to generate invoice (non-critical):', invoiceError);
-        // Continue with email even if invoice generation fails
+        console.error('Failed to generate invoice:', invoiceError);
       }
       
       const emailResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/email/send-shipped-confirmation`, {
@@ -186,7 +189,8 @@ export const AdminOrdersPage: React.FC = () => {
           orderNumber: order.orderNumber,
           customerName: order.clientName,
           customerEmail: order.clientEmail,
-          invoiceUrl, // Include invoice URL in email
+          invoiceUrl,
+          orderData: order
         }),
       });
       
@@ -218,7 +222,6 @@ export const AdminOrdersPage: React.FC = () => {
   };
 
   const handleBulkStatusChange = async (newStatus: OrderStatus) => {
-    // Statuses that require a reason/note: 'queue', 'returned', 'closed'
     const requiresReason = newStatus === 'queue' || newStatus === 'returned' || newStatus === 'closed';
     
     if (requiresReason) {
@@ -308,9 +311,18 @@ export const AdminOrdersPage: React.FC = () => {
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Caută după client, email sau ID..."
-              className="w-full pl-12 pr-4 py-3 text-sm sm:text-base border-2 border-gray-300 rounded-lg focus:border-yellow-500 focus:outline-none"
+              placeholder="Caută după client, email, telefon sau ID..."
+              className="w-full pl-12 pr-12 py-3 text-sm sm:text-base border-2 border-gray-300 rounded-lg focus:border-yellow-500 focus:outline-none"
             />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm('')}
+                className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                title="Șterge căutarea"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            )}
           </div>
 
           <div className="relative">
@@ -524,7 +536,7 @@ export const AdminOrdersPage: React.FC = () => {
                       <div>
                         <p className="text-gray-500 mb-1">Total</p>
                         <p className={`${order.status === 'returned' ? 'text-red-600' : 'text-gray-900'}`}>
-                          {order.status === 'returned' ? '-' : ''}{order.totalPrice.toFixed(2)} lei
+                          {order.status === 'returned' ? '-' : ''}{(order.totalPrice || 0).toFixed(2)} lei
                         </p>
                       </div>
                     </div>
@@ -627,14 +639,70 @@ export const AdminOrdersPage: React.FC = () => {
                     )}
                   </button>
                 </th>
-                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">ID Comandă</th>
-                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">Client</th>
-                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">Email</th>
-                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">Data</th>
-                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">Tablouri</th>
-                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">Total</th>
-                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">Acțiuni</th>
+                <th className="px-4 lg:px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">ID Comandă</th>
+                <th className="px-4 py-3 text-center text-xs text-gray-600 uppercase tracking-wider w-16">Plată</th>
+                <th className="px-4 lg:px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">Client</th>
+                <th className="hidden xl:table-cell px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">Email</th>
+                <th className="hidden 2xl:table-cell px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">Data</th>
+                <th className="px-4 py-3 text-center text-xs text-gray-600 uppercase tracking-wider w-20">Tablouri</th>
+                <th className="px-4 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">Total</th>
+                <th className="px-4 lg:px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">Status</th>
+                <th className="px-4 py-4 relative">
+                  <div className="relative">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpenActionsMenu(openActionsMenu === 'all' ? null : 'all');
+                      }}
+                      className="p-1 hover:bg-gray-100 rounded transition-colors"
+                    >
+                      <MoreVertical className="w-5 h-5 text-gray-600" />
+                    </button>
+                    
+                    {openActionsMenu === 'all' && (
+                      <>
+                        {/* Backdrop */}
+                        <div 
+                          className="fixed inset-0 z-30" 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenActionsMenu(null);
+                          }}
+                        />
+                        
+                        {/* Dropdown Menu */}
+                        <div className="absolute right-0 top-8 z-40 w-40 bg-white rounded-lg shadow-lg border border-gray-200 py-1">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/admin/orders/${order.id}`);
+                              setOpenActionsMenu(null);
+                            }}
+                            className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
+                          >
+                            <Eye className="w-4 h-4" />
+                            <span>Vezi Detalii</span>
+                          </button>
+                          {currentUser?.role === 'full-admin' && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (window.confirm(`Sigur vrei să ștergi comanda #${order.orderNumber || order.id.slice(-8)}?`)) {
+                                  deleteOrder(order.id);
+                                }
+                                setOpenActionsMenu(null);
+                              }}
+                              className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center space-x-2"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              <span>Șterge</span>
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -646,7 +714,11 @@ export const AdminOrdersPage: React.FC = () => {
                 </tr>
               ) : (
                 paginatedOrders.map((order) => (
-                  <tr key={order.id} className="hover:bg-gray-50">
+                  <tr 
+                    key={order.id} 
+                    onClick={() => navigate(`/admin/orders/${order.id}`)}
+                    className="hover:bg-gray-50 cursor-pointer transition-colors"
+                  >
                     <td className="px-6 py-4">
                       <button
                         onClick={(e) => {
@@ -662,7 +734,7 @@ export const AdminOrdersPage: React.FC = () => {
                         )}
                       </button>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
+                    <td className="px-4 lg:px-6 py-4 text-sm text-gray-900">
                       <div className="flex items-center space-x-2">
                         <span>#{order.orderNumber || order.id.slice(-8)}</span>
                         {getTotalNotesCount(order.id) > 0 && (
@@ -688,16 +760,23 @@ export const AdminOrdersPage: React.FC = () => {
                         )}
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">{order.clientName}</td>
-                    <td className="px-6 py-4 text-sm text-gray-600">{order.clientEmail}</td>
-                    <td className="px-6 py-4 text-sm text-gray-600">
+                    <td className="px-4 py-4 text-sm text-gray-900">
+                      <div className="flex items-center justify-center">
+                        {(order.orderNumber || order.id).includes('CARD') && (
+                          <CreditCard className="w-4 h-4 text-blue-600" title="Plată cu cardul" />
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 lg:px-6 py-4 text-sm text-gray-900">{order.clientName}</td>
+                    <td className="hidden xl:table-cell px-6 py-4 text-sm text-gray-600">{order.clientEmail}</td>
+                    <td className="hidden 2xl:table-cell px-6 py-4 text-sm text-gray-600">
                       {new Date(order.orderDate).toLocaleDateString('ro-RO')}
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">{order.canvasItems.length}</td>
-                    <td className={`px-6 py-4 text-sm ${order.status === 'returned' ? 'text-red-600' : 'text-gray-900'}`}>
-                      {order.status === 'returned' ? '-' : ''}{order.totalPrice.toFixed(2)} lei
+                    <td className="px-4 py-4 text-sm text-gray-900 text-center">{order.canvasItems.length}</td>
+                    <td className={`px-4 py-4 text-sm ${order.status === 'returned' ? 'text-red-600' : 'text-gray-900'}`}>
+                      {order.status === 'returned' ? '-' : ''}{(order.totalPrice || 0).toFixed(2)} lei
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 lg:px-6 py-4">
                       <select
                         value={order.status}
                         onChange={(e) => {
@@ -705,13 +784,13 @@ export const AdminOrdersPage: React.FC = () => {
                           const newStatus = e.target.value as OrderStatus;
                           // Only open modal if status is actually changing
                           if (newStatus !== order.status) {
-                            handleStatusChange(order.id, order.status, newStatus);
+                            handleStatusChange(order.id, newStatus, order.status);
                           }
                           // Reset select to current status to prevent UI glitch
                           e.target.value = order.status;
                         }}
                         onClick={(e) => e.stopPropagation()}
-                        className={`status-badge inline-flex px-3 py-1 text-xs rounded-full border-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-yellow-500 ${getStatusColor(order.status)}`}
+                        className={`status-badge inline-flex px-2 lg:px-3 py-1 text-xs rounded-full border-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-yellow-500 ${getStatusColor(order.status)}`}
                       >
                         {currentUser?.role !== 'production' && (
                           <>
@@ -725,30 +804,59 @@ export const AdminOrdersPage: React.FC = () => {
                         <option value="closed" style={{ backgroundColor: '#f3f4f6', color: '#1f2937' }}>Închis</option>
                       </select>
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center space-x-2">
+                    <td className="px-4 py-4 relative">
+                      <div className="relative">
                         <button
-                          onClick={() => navigate(`/admin/orders/${order.id}`)}
-                          className="inline-flex items-center space-x-2 px-3 py-1.5 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors text-sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenActionsMenu(openActionsMenu === order.id ? null : order.id);
+                          }}
+                          className="p-1 hover:bg-gray-100 rounded transition-colors"
                         >
-                          <Eye className="w-4 h-4" />
-                          <span>Vezi</span>
+                          <MoreVertical className="w-5 h-5 text-gray-600" />
                         </button>
-                        {/* Delete button - only for full-admin */}
-                        {currentUser?.role === 'full-admin' && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (window.confirm(`Sigur vrei să ștergi comanda #${order.id.slice(-8)}? Această acțiune nu poate fi anulată.`)) {
-                                deleteOrder(order.id);
-                                toast.success('Comandă ștearsă cu succes');
-                              }
-                            }}
-                            className="inline-flex items-center space-x-1 px-3 py-1.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm"
-                            title="Șterge comandă"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                        
+                        {openActionsMenu === order.id && (
+                          <>
+                            {/* Backdrop */}
+                            <div 
+                              className="fixed inset-0 z-30" 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenActionsMenu(null);
+                              }}
+                            />
+                            
+                            {/* Dropdown Menu */}
+                            <div className="absolute right-0 top-8 z-40 w-40 bg-white rounded-lg shadow-lg border border-gray-200 py-1">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigate(`/admin/orders/${order.id}`);
+                                  setOpenActionsMenu(null);
+                                }}
+                                className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
+                              >
+                                <Eye className="w-4 h-4" />
+                                <span>Vezi Detalii</span>
+                              </button>
+                              {currentUser?.role === 'full-admin' && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (window.confirm(`Sigur vrei să ștergi comanda #${order.orderNumber || order.id.slice(-8)}?`)) {
+                                      deleteOrder(order.id);
+                                    }
+                                    setOpenActionsMenu(null);
+                                  }}
+                                  className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center space-x-2"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                  <span>Șterge</span>
+                                </button>
+                              )}
+                            </div>
+                          </>
                         )}
                       </div>
                     </td>

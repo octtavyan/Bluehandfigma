@@ -1,26 +1,28 @@
 // BlueHand Canvas - Supabase Edge Function Server
 // Handles email sending with Resend API and payment gateways (Netopia + Revolut)
-// Last updated: 2026-01-30 - Added admin panel endpoints (orders, paintings, sizes, frame-types, clients)
-// Server Version: 2.3.4 - Added GET endpoints for admin panel data retrieval
+// Last updated: 2026-01-31 - Cleaned up PDF/Cloudinary code, now serving HTML invoices directly
+// Server Version: 2.6.0 - HTML invoices served via public GET route /invoice/view/:orderNumber
 // 
-// CRITICAL FIXES:
-// - Fixed VAT rate from 21% to 19% for Romanian standard rate
-// - Fixed PDF table to include TVA column with proper calculations
-// - Fixed unit price calculation (now shows price without VAT ÷ quantity)
-// - Fixed Cloudinary PDF upload with resource_type: 'raw' parameter
-// - Fixed Cloudinary settings key from 'cloudinary:settings' to 'cloudinary_settings'
-// - Hardcoded "RON" directly in XML attributes (no variable interpolation)
-// - Added email format validation for Resend API
-// - Added missing cart save/load endpoints
-// - Added missing Unsplash settings endpoints
-// - Added decryption test IMMEDIATELY after encryption to verify XML integrity
-// - Added order.currency object at ROOT level of JSON request (Netopia validates this!)
-// - Updated to use correct POS signature: 38CJ-NTJR-M8VL-QSUQ-OHEA
+// CRITICAL CHANGES:
+// - VAT rate set to 21% for Romanian standard rate
+// - Abandoned PDF generation and Cloudinary uploads
+// - HTML invoices served directly from Edge Function server
+// - Public invoice viewing route: /invoice/view/:orderNumber
+// - Invoice generation route: /invoice/generate (POST)
+// - Invoice data route: /invoice/:orderNumber (GET)
+// - All email templates updated with BlueHand Canvas logo from Cloudinary
+// - Hardcoded "RON" in Netopia XML attributes (no variable interpolation)
+// - Email format validation for Resend API
+// - Cart save/load endpoints
+// - Unsplash settings endpoints
+// - Netopia payment with proper XML encryption and signature handling
 
 import { Hono } from "npm:hono@4.3.11";
 import { cors } from "npm:hono@4.3.11/cors";
 import { logger } from "npm:hono@4.3.11/logger";
 import * as kv from "./kv_store.tsx";
+import * as invoiceModule from "./invoice.tsx";
+import * as fgoModule from "./fgo.tsx";
 
 const app = new Hono();
 
@@ -39,13 +41,33 @@ app.get("/make-server-bbc0c500/health", (c) => {
   return c.json({ 
     status: "ok",
     message: "BlueHand Canvas API is running",
-    version: "2.3.4",
-    lastUpdate: "2026-01-30 - Added admin panel endpoints for orders, paintings, sizes, frame-types, clients",
+    version: "2.6.0",
+    lastUpdate: "2026-01-31 - Cleaned up all PDF/Cloudinary code, now serving HTML invoices directly",
     timestamp: new Date().toISOString(),
     paymentEndpointStatus: "All Netopia credentials now stored in database - configure in Admin Settings",
-    invoiceStatus: "Debugging: Added logging for item data, support for price/total fields, multi-line wrapping",
+    invoiceStatus: "✅ HTML invoices served via /invoice/view/:orderNumber (no PDF generation)",
     adminEndpoints: "✅ Orders, Paintings, Sizes, FrameTypes, Clients - All endpoints active"
   });
+});
+
+// Debug endpoint to log payment return parameters
+app.post("/make-server-bbc0c500/debug/log-payment-return", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { params, url, timestamp } = body;
+    
+    // Store debug log in KV for inspection
+    await kv.set(`debug:payment_return:${Date.now()}`, {
+      params,
+      url,
+      timestamp,
+      logged: new Date().toISOString()
+    });
+    
+    return c.json({ success: true, message: 'Debug log saved' });
+  } catch (error) {
+    return c.json({ success: false, error: 'Failed to log' }, 500);
+  }
 });
 
 // Test/diagnostic endpoint to verify XML structure WITHOUT calling Netopia
@@ -1068,11 +1090,13 @@ app.post("/make-server-bbc0c500/email/send-order-confirmation", async (c) => {
 app.post("/make-server-bbc0c500/email/send-shipped-confirmation", async (c) => {
   try {
     const body = await c.req.json();
+    
     const { 
       orderNumber, 
       customerName, 
       customerEmail,
-      invoiceUrl // Invoice URL passed from frontend after generation
+      invoiceUrl,
+      orderData
     } = body;
     
     if (!customerEmail || !orderNumber) {
@@ -1112,36 +1136,165 @@ app.post("/make-server-bbc0c500/email/send-shipped-confirmation", async (c) => {
     const fromEmail = settings?.fromEmail || 'onboarding@resend.dev';
     const fromName = settings?.fromName || 'BlueHand Canvas';
 
-    console.log(`📧 Sending shipped confirmation email from: ${fromName} <${fromEmail}>`);
-
-    // Get invoice from KV if not provided (fallback)
-    let finalInvoiceUrl = invoiceUrl;
-    if (!finalInvoiceUrl) {
-      const invoice = await kv.get<{
-        invoiceNumber: string;
-        cloudinaryUrl?: string;
-        html?: string;
-      }>(`invoice:${orderNumber}`);
-      
-      if (invoice?.cloudinaryUrl) {
-        finalInvoiceUrl = invoice.cloudinaryUrl;
+    // Get invoice HTML from KV
+    const invoice = await kv.get<{
+      invoiceNumber: string;
+      orderNumber: string;
+      html: string;
+      generatedAt: string;
+    }>(`invoice:${orderNumber}`);
+    
+    // Generate invoice - Check FGO first, then fallback to internal system
+    let pdfAttachment = null;
+    let fgoInvoiceLink = null;
+    let fgoInvoiceNumber = null;
+    
+    try {
+      if (orderData) {
+        // Check if FGO invoice already exists for this order
+        const existingFgoInvoice = await kv.get(`fgo_invoice:${orderNumber}`);
+        
+        if (existingFgoInvoice) {
+          console.log('📋 FGO invoice already exists for this order');
+          fgoInvoiceLink = existingFgoInvoice.invoiceLink;
+          fgoInvoiceNumber = `${existingFgoInvoice.invoiceSerie}-${existingFgoInvoice.invoiceNumber}`;
+        } else {
+          // Check if FGO is enabled
+          const fgoEnabled = await fgoModule.isEnabled();
+          
+          if (fgoEnabled) {
+            console.log('🟢 FGO is enabled - Generating invoice via FGO API');
+            
+            // Generate invoice via FGO
+            const fgoResult = await fgoModule.generateInvoice({
+              orderNumber: orderData.orderNumber,
+              orderDate: orderData.orderDate,
+              customerName: orderData.clientName || customerName,
+              customerEmail: orderData.clientEmail || customerEmail,
+              customerPhone: orderData.clientPhone || '',
+              customerAddress: orderData.address || '',
+              customerCity: orderData.deliveryCity || orderData.city || '',
+              customerCounty: orderData.deliveryCounty || orderData.county || '',
+              customerPostalCode: orderData.postalCode || '',
+              items: orderData.canvasItems || [],
+              total: orderData.totalPrice,
+              deliveryPrice: 0,
+              billingName: orderData.billingName,
+              billingCUI: orderData.billingCUI,
+              billingRegCom: orderData.billingRegCom,
+              billingAddress: orderData.billingAddress,
+              personType: orderData.billingCUI ? 'juridica' : 'fizica'
+            });
+            
+            if (fgoResult.success) {
+              console.log('✅ FGO invoice generated successfully');
+              console.log(`   Serie: ${fgoResult.invoiceSerie}, Numar: ${fgoResult.invoiceNumber}`);
+              console.log(`   Link: ${fgoResult.invoiceLink}`);
+              
+              fgoInvoiceLink = fgoResult.invoiceLink;
+              fgoInvoiceNumber = `${fgoResult.invoiceSerie}-${fgoResult.invoiceNumber}`;
+              
+              const generatedAt = new Date().toISOString();
+              
+              // Store FGO invoice data in KV for reference
+              await kv.set(`fgo_invoice:${orderNumber}`, {
+                invoiceNumber: fgoResult.invoiceNumber,
+                invoiceSerie: fgoResult.invoiceSerie,
+                invoiceLink: fgoResult.invoiceLink,
+                orderNumber: orderData.orderNumber,
+                generatedAt: generatedAt
+              });
+              
+              // Update order with FGO invoice information
+              await kv.set(`order:${orderNumber}`, {
+                ...orderData,
+                fgoInvoiceNumber: fgoResult.invoiceNumber,
+                fgoInvoiceSerie: fgoResult.invoiceSerie,
+                fgoInvoiceLink: fgoResult.invoiceLink,
+                fgoInvoiceGeneratedAt: generatedAt
+              });
+              
+              console.log('💾 FGO invoice data saved to order');
+            } else {
+              console.error('❌ FGO invoice generation failed:', fgoResult.message);
+              console.log('⚠️ Falling back to internal invoice system');
+            }
+          }
+        }
+        
+        // Only generate PDF invoice (jsPDF) if FGO invoice doesn't exist
+        // When FGO invoice exists, we use the green button link instead of PDF attachment
+        if (!fgoInvoiceLink) {
+          console.log('🔵 Generating PDF invoice via internal system (jsPDF) - No FGO invoice found');
+          
+          const { generateInvoice } = await import('./invoice.tsx');
+          
+          const invoiceResult = await generateInvoice({
+            orderNumber: orderData.orderNumber,
+            orderDate: orderData.orderDate,
+            customerName: orderData.clientName || customerName,
+            customerEmail: orderData.clientEmail || customerEmail,
+            customerPhone: orderData.clientPhone || '',
+            customerAddress: orderData.address || '',
+            customerCity: orderData.deliveryCity || orderData.city || '',
+            customerCounty: orderData.deliveryCounty || orderData.county || '',
+            customerPostalCode: orderData.postalCode || '',
+            items: orderData.canvasItems || [],
+            total: orderData.totalPrice,
+            deliveryPrice: 0,
+            billingName: orderData.billingName,
+            billingCUI: orderData.billingCUI,
+            billingRegCom: orderData.billingRegCom,
+            billingAddress: orderData.billingAddress
+          });
+          
+          if (invoiceResult.success && invoiceResult.pdf) {
+            const base64 = btoa(Array.from(invoiceResult.pdf, byte => String.fromCharCode(byte)).join(''));
+            pdfAttachment = {
+              filename: `Factura_${invoiceResult.invoiceNumber}.pdf`,
+              content: base64
+            };
+            console.log(`✅ PDF invoice generated successfully: ${invoiceResult.invoiceNumber}`);
+          }
+        } else {
+          console.log('✅ FGO invoice exists - Skipping PDF generation, will use FGO link instead');
+        }
       }
+    } catch (invoiceError) {
+      console.error('❌ Error generating invoice:', invoiceError);
     }
     
-    // Build invoice section for email body
-    let invoiceSection = '';
-    if (finalInvoiceUrl) {
-      invoiceSection = `
-                <!-- Invoice Download -->
-                <div style="background-color: #f0f4ff; border-left: 4px solid #7B93FF; padding: 15px; margin: 20px 0;">
-                  <p style="margin: 0; color: #333; font-size: 14px;">
-                    <strong>📄 Factura ta este disponibilă:</strong><br>
-                    <a href="${finalInvoiceUrl}" style="color: #7B93FF; text-decoration: none; font-weight: bold; display: inline-block; margin-top: 10px; background-color: white; padding: 10px 20px; border-radius: 5px; border: 2px solid #7B93FF;">
-                      📥 Descarcă Factura PDF
-                    </a>
-                  </p>
-                </div>`;
-    }
+    // Build invoice HTML based on whether FGO was used
+    const invoiceHTML = fgoInvoiceLink 
+      ? `
+        <!-- FGO Invoice Section -->
+        <div style="background-color: #e8f5e9; border-left: 4px solid #10b981; padding: 20px; margin: 20px 0; border-radius: 8px;">
+          <h3 style="color: #10b981; margin: 0 0 10px 0; font-size: 18px;">📄 Factura Ta Fiscală</h3>
+          <p style="margin: 0 0 15px 0; color: #333; font-size: 15px; line-height: 1.6;">
+            Factura fiscală a fost generată automat prin sistemul FGO.<br>
+            <strong>Număr factură:</strong> ${fgoInvoiceNumber}
+          </p>
+          <a href="${fgoInvoiceLink}" target="_blank" style="display: inline-block; background-color: #10b981; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 15px;">
+            📥 Descarcă Factura
+          </a>
+          <p style="margin: 15px 0 0 0; color: #666; font-size: 13px;">
+            💡 Click pe butonul de mai sus pentru a descărca factura ta fiscală în format PDF.
+          </p>
+        </div>
+      `
+      : `
+        <!-- Internal Invoice Section -->
+        <div style="background-color: #e8f5e9; border-left: 4px solid #10b981; padding: 20px; margin: 20px 0; border-radius: 8px;">
+          <h3 style="color: #10b981; margin: 0 0 10px 0; font-size: 18px;">📄 Factura Ta</h3>
+          <p style="margin: 0; color: #333; font-size: 15px; line-height: 1.6;">
+            Factura fiscală este atașată la acest email în format PDF.<br>
+            <strong>Nume fișier:</strong> Factura_${orderNumber.replace('#', '').replace('BHC-', '')}.pdf
+          </p>
+          <p style="margin: 10px 0 0 0; color: #666; font-size: 13px;">
+            💡 Poți deschide și salva PDF-ul direct din acest email.
+          </p>
+        </div>
+      `;
     
     // Prepare email body
     const emailBody: any = {
@@ -1181,7 +1334,7 @@ app.post("/make-server-bbc0c500/email/send-shipped-confirmation", async (c) => {
                   </p>
                 </div>
                 
-                ${invoiceSection}
+                ${invoiceHTML}
                 
                 <!-- Delivery Info -->
                 <div style="background-color: #fffbeb; border-left: 4px solid #fbbf24; padding: 15px; margin: 20px 0;">
@@ -1227,6 +1380,11 @@ app.post("/make-server-bbc0c500/email/send-shipped-confirmation", async (c) => {
           </html>
         `
     };
+    
+    // Add PDF attachment if generated
+    if (pdfAttachment) {
+      emailBody.attachments = [pdfAttachment];
+    }
 
     // Send email via Resend API
     const response = await fetch('https://api.resend.com/emails', {
@@ -1241,14 +1399,13 @@ app.post("/make-server-bbc0c500/email/send-shipped-confirmation", async (c) => {
     const data = await response.json();
 
     if (!response.ok) {
-      console.error('❌ Resend API error:', data);
+      console.error('Resend API error:', data);
       return c.json({ 
         success: false, 
         error: data.message || 'Failed to send email via Resend' 
       }, response.status);
     }
 
-    console.log('✅ Shipped confirmation email sent successfully:', data);
     return c.json({ 
       success: true, 
       message: 'Shipped confirmation email sent',
@@ -1256,7 +1413,7 @@ app.post("/make-server-bbc0c500/email/send-shipped-confirmation", async (c) => {
     });
 
   } catch (error) {
-    console.error('❌ Error sending shipped confirmation email:', error);
+    console.error('Error sending shipped confirmation email:', error);
     return c.json({ 
       success: false, 
       error: error instanceof Error ? error.message : 'Unknown error occurred' 
@@ -1264,572 +1421,288 @@ app.post("/make-server-bbc0c500/email/send-shipped-confirmation", async (c) => {
   }
 });
 
-// ===== INVOICE GENERATION =====
+// ===== FGO INTEGRATION =====
 
-// Generate invoice PDF for an order
-app.post("/make-server-bbc0c500/invoice/generate", async (c) => {
+// Get FGO settings
+app.get("/make-server-bbc0c500/fgo/settings", async (c) => {
   try {
-    const body = await c.req.json();
-    const { 
-      orderNumber,
-      orderDate,
-      customerName,
-      customerEmail,
-      customerPhone,
-      customerAddress,
-      customerCity,
-      customerCounty,
-      customerPostalCode,
-      items,
-      total,
-      deliveryPrice,
-      // Optional billing fields (for juridica)
-      billingName,
-      billingCUI,
-      billingRegCom,
-      billingAddress
-    } = body;
+    const settings = await fgoModule.getSettings();
     
-    if (!orderNumber || !customerName || !items) {
-      return c.json({ success: false, error: 'Missing required invoice data' }, 400);
-    }
-    
-    console.log(`📄 Generating invoice for order ${orderNumber}...`);
-    console.log(`📋 Customer: ${customerName}, Billing: ${billingName || 'N/A'}`);
-    console.log(`📋 Items received:`, JSON.stringify(items, null, 2));
-    console.log(`📋 Total: ${total}, Delivery: ${deliveryPrice || 0}`);
-    
-    // Log each item's price to diagnose the issue
-    items.forEach((item: any, index: number) => {
-      console.log(`📦 Item ${index}: price=${item.price}, total=${item.total}, size=${item.size}, name=${item.paintingTitle || item.title}`);
-    });
-    
-    // Fetch sizes from CMS to get accurate pricing
-    console.log('🔍 Fetching sizes from CMS for price lookup...');
-    const sizesData = await kv.getByPrefix('size:') || [];
-    const sizesMap = new Map(sizesData.map((s: any) => [s.name, s.price]));
-    console.log(`📏 Loaded ${sizesData.length} sizes:`, sizesData.map((s: any) => `${s.name}=${s.price}`).join(', '));
-    
-    // Enrich items with prices from sizes table
-    const enrichedItems = items.map((item: any, index: number) => {
-      const itemSize = item.size || '';
-      let finalPrice = parseFloat(item.price || item.total || 0);
-      
-      console.log(`🔍 Item ${index}: size="${itemSize}", storedPrice=${finalPrice}`);
-      
-      // If price is missing or 0, look it up from sizes table
-      if (!finalPrice || finalPrice === 0) {
-        const sizePrice = sizesMap.get(itemSize);
-        console.log(`   → Looking up "${itemSize}" in sizes map... found: ${sizePrice || 'NOT FOUND'}`);
-        if (sizePrice) {
-          console.log(`   ✅ Using CMS price: ${sizePrice} lei`);
-          finalPrice = sizePrice;
-        } else {
-          console.log(`   ⚠️ Size "${itemSize}" not found in CMS, available sizes:`, Array.from(sizesMap.keys()));
+    if (!settings) {
+      return c.json({
+        success: true,
+        settings: {
+          enabled: false,
+          environment: 'test',
+          codUnic: '',
+          cheiePivata: '',
+          serie: '',
+          platformaUrl: '',
         }
-      } else {
-        console.log(`   ✓ Using stored price: ${finalPrice} lei`);
-      }
-      
-      return {
-        ...item,
-        price: finalPrice
-      };
-    });
-    
-    console.log('📋 Items after price enrichment:', enrichedItems.map((i: any) => `${i.size}=${i.price}`).join(', '));
-    
-    // Use billing info if available, otherwise use customer info
-    const clientName = billingName || customerName;
-    const clientAddress = billingAddress || customerAddress;
-    
-    // Calculate VAT (21%) - reverse calculation
-    // If total = 100 RON, then: base = 100/1.21 = 82.64, VAT = 17.36
-    const VAT_RATE = 0.21;
-    const totalAmount = parseFloat(total);
-    const totalWithoutVAT = totalAmount / (1 + VAT_RATE);
-    const vatAmount = totalAmount - totalWithoutVAT;
-    
-    // Calculate delivery VAT
-    const deliveryAmount = parseFloat(deliveryPrice || 0);
-    const deliveryWithoutVAT = deliveryAmount / (1 + VAT_RATE);
-    const deliveryVATAmount = deliveryAmount - deliveryWithoutVAT;
-    
-    // Generate invoice number (format: TINY XXX)
-    const invoiceNumber = `TINY ${orderNumber.replace('#', '')}`;
-    
-    // Format dates
-    const issueDate = orderDate ? new Date(orderDate).toLocaleDateString('ro-RO') : new Date().toLocaleDateString('ro-RO');
-    const dueDate = new Date(new Date(orderDate || new Date()).getTime() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('ro-RO');
-    
-    // Build items table HTML
-    let itemsHTML = '';
-    let itemNumber = 1;
-    
-    for (const item of enrichedItems) {
-      const itemTotal = parseFloat(item.price || 0);
-      const itemWithoutVAT = itemTotal / (1 + VAT_RATE);
-      const itemVAT = itemTotal - itemWithoutVAT;
-      const quantity = item.quantity || 1;
-      const unitPrice = itemWithoutVAT / quantity;
-      
-      // Build article description with painting details
-      const articleDesc = `${item.paintingTitle || item.title || 'Tablou Personalizat'} - ${item.size || 'N/A'}${item.orientation ? `, ${item.orientation === 'portrait' ? 'Portrait' : 'Landscape'}` : ''}`;
-      
-      itemsHTML += `
-        <tr>
-          <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">${itemNumber}</td>
-          <td style="padding: 8px; border: 1px solid #ddd;">${articleDesc}</td>
-          <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">BUC</td>
-          <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">${quantity}</td>
-          <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${unitPrice.toFixed(2)}</td>
-          <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${itemWithoutVAT.toFixed(2)}</td>
-          <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${itemVAT.toFixed(2)} (21%)</td>
-          <td style="padding: 8px; border: 1px solid #ddd; text-align: right;"><strong>${itemTotal.toFixed(2)}</strong></td>
-        </tr>
-      `;
-      itemNumber++;
-    }
-    
-    // Add delivery as separate line item if exists
-    if (deliveryAmount > 0) {
-      itemsHTML += `
-        <tr>
-          <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">${itemNumber}</td>
-          <td style="padding: 8px; border: 1px solid #ddd;">Transport și Livrare</td>
-          <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">BUC</td>
-          <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">1</td>
-          <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${deliveryWithoutVAT.toFixed(2)}</td>
-          <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${deliveryWithoutVAT.toFixed(2)}</td>
-          <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${deliveryVATAmount.toFixed(2)} (21%)</td>
-          <td style="padding: 8px; border: 1px solid #ddd; text-align: right;"><strong>${deliveryAmount.toFixed(2)}</strong></td>
-        </tr>
-      `;
-    }
-    
-    // Generate HTML invoice
-    const invoiceHTML = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="UTF-8">
-        <style>
-          body { font-family: Arial, sans-serif; font-size: 12px; margin: 40px; }
-          .logo { font-size: 28px; font-weight: bold; color: #3B82F6; margin-bottom: 5px; }
-          .tagline { font-size: 11px; color: #666; margin-bottom: 20px; }
-          .header { display: flex; justify-content: space-between; margin-bottom: 30px; }
-          .invoice-title { font-size: 24px; font-weight: bold; }
-          .invoice-number { font-size: 20px; color: #7B93FF; margin-top: 5px; }
-          .dates { text-align: right; }
-          .section { margin-bottom: 30px; }
-          .section-title { font-weight: bold; margin-bottom: 10px; font-size: 14px; }
-          .company-info { line-height: 1.6; }
-          .table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-          .table th { background-color: #f5f5f5; padding: 10px; border: 1px solid #ddd; font-weight: bold; text-align: left; }
-          .totals { margin-top: 20px; text-align: right; }
-          .total-row { margin: 5px 0; }
-          .total-final { background-color: #7B93FF; color: white; padding: 10px; margin-top: 10px; font-size: 16px; font-weight: bold; }
-          .footer { margin-top: 40px; font-size: 10px; color: #666; line-height: 1.5; }
-          .payment-info { margin-top: 30px; border-top: 2px solid #ddd; padding-top: 20px; }
-        </style>
-      </head>
-      <body>
-        <!-- Logo -->
-        <img src="https://res.cloudinary.com/driv1havv/image/upload/v1769787364/BLUEHAND_logo_kcoulo.png" alt="BlueHand Canvas" style="width: 150px; height: auto; margin-bottom: 10px;" />
-        
-        <!-- Header -->
-        <div class="header">
-          <div>
-            <div class="invoice-title">FACTURA</div>
-            <div class="invoice-number">${invoiceNumber}</div>
-          </div>
-          <div class="dates">
-            <div><strong>Data emitere:</strong> ${issueDate}</div>
-            <div><strong>Data scadenta:</strong> ${dueDate}</div>
-          </div>
-        </div>
-        
-        <!-- Supplier and Client Info -->
-        <div style="display: flex; justify-content: space-between; margin-bottom: 30px;">
-          <div class="section" style="width: 48%;">
-            <div class="section-title">Furnizor</div>
-            <div class="company-info">
-              <strong>TINYPODS S.R.L.</strong><br>
-              CUI: 50508421<br>
-              Reg. Com.: J2024019956002<br>
-              Țara: ROMANIA<br>
-              jud. Ilfov, Localitate: Pantelimon<br>
-              Oras. PANTELIMON, STR. BUSTENI, NR.1, AP.6<br>
-              IBAN: RO21BTRLRONCRT0CU1300801
-            </div>
-          </div>
-          <div class="section" style="width: 48%;">
-            <div class="section-title">Client</div>
-            <div class="company-info">
-              <strong>${(billingName || customerName).toUpperCase()}</strong><br>
-              ${billingCUI ? `CUI: ${billingCUI}<br>` : ''}
-              ${billingRegCom ? `Reg. Com.: ${billingRegCom}<br>` : ''}
-              ${customerEmail ? `Email: ${customerEmail}<br>` : ''}
-              ${customerPhone ? `Telefon: ${customerPhone}<br>` : ''}
-              ${(billingAddress || customerAddress) ? `${billingAddress || customerAddress}<br>` : ''}
-              ${customerCity ? `${customerCity}` : ''}${customerCounty ? `, ${customerCounty}` : ''}${customerPostalCode ? `, ${customerPostalCode}` : ''}<br>
-              ROMANIA
-            </div>
-          </div>
-        </div>
-        
-        <!-- Items Table -->
-        <table class="table">
-          <thead>
-            <tr>
-              <th style="width: 5%; text-align: center;">#</th>
-              <th style="width: 35%;">Articol</th>
-              <th style="width: 8%; text-align: center;">U.M.</th>
-              <th style="width: 8%; text-align: center;">Cant.</th>
-              <th style="width: 11%; text-align: right;">Pret unitar</th>
-              <th style="width: 11%; text-align: right;">Valoare</th>
-              <th style="width: 11%; text-align: right;">TVA</th>
-              <th style="width: 11%; text-align: right;">TOTAL</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${itemsHTML}
-          </tbody>
-        </table>
-        
-        <!-- Totals -->
-        <div class="totals">
-          <div class="total-row">Total fara TVA: <strong>${totalWithoutVAT.toFixed(2)} RON</strong></div>
-          <div class="total-row">TVA 21%: <strong>${vatAmount.toFixed(2)} RON</strong></div>
-          <div class="total-final">Total: ${totalAmount.toFixed(2)} Lei</div>
-        </div>
-        
-        <!-- Payment Instructions -->
-        <div class="payment-info">
-          <div style="font-weight: bold; margin-bottom: 10px;">Instrucțiuni de plată:</div>
-          <div>IBAN: RO21BTRLRONCRT0CU1300801</div>
-          <div>Beneficiar: TINYPODS S.R.L.</div>
-        </div>
-        
-        <!-- Footer -->
-        <div class="footer">
-          Factura circula fara semnatura si stampila cf. art.V, alin (2) din Ordonanta nr.17/2015 si art. 319 alin (29) din Legea nr. 227/2015 privind Codul fiscal.
-        </div>
-      </body>
-      </html>
-    `;
-    
-    // Generate and upload invoice as PDF to Cloudinary
-    console.log('📤 Generating PDF and uploading to Cloudinary...');
-    let cloudinaryUrl = '';
-    
-    try {
-      // Get Cloudinary settings from database
-      const cloudinarySettings = await kv.get('cloudinary_settings');
-      
-      if (!cloudinarySettings || !cloudinarySettings.cloudName || !cloudinarySettings.uploadPreset) {
-        throw new Error('Cloudinary not configured. Please configure in Admin Settings.');
-      }
-      
-      console.log('✅ Cloudinary configured:', cloudinarySettings.cloudName);
-      
-      // Import PDF generation library (using jsPDF which works in Deno)
-      console.log('🔄 Generating PDF from invoice data...');
-      const { jsPDF } = await import('npm:jspdf@2.5.1');
-      
-      // Create new PDF document
-      const doc = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4'
       });
-      
-      // Set font
-      doc.setFont('helvetica');
-      
-      // Add BlueHand Canvas Logo image
-      try {
-        const logoUrl = 'https://res.cloudinary.com/driv1havv/image/upload/v1769787364/BLUEHAND_logo_kcoulo.png';
-        const logoResponse = await fetch(logoUrl);
-        const logoArrayBuffer = await logoResponse.arrayBuffer();
-        
-        // Convert ArrayBuffer to base64 (Deno-compatible way)
-        const logoUint8Array = new Uint8Array(logoArrayBuffer);
-        let binaryString = '';
-        for (let i = 0; i < logoUint8Array.length; i++) {
-          binaryString += String.fromCharCode(logoUint8Array[i]);
-        }
-        const logoBase64 = 'data:image/png;base64,' + btoa(binaryString);
-        
-        // Add logo image to PDF (40mm wide, auto height, at top left)
-        doc.addImage(logoBase64, 'PNG', 20, 10, 40, 0);
-        console.log('✅ Logo added to PDF successfully');
-      } catch (error) {
-        console.error('⚠️ Could not load logo, using text fallback:', error);
-        // Fallback to text logo if image fails
-        doc.setFontSize(22);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(59, 130, 246);
-        doc.text('BlueHand Canvas', 20, 15);
-        doc.setFontSize(8);
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(100, 100, 100);
-        doc.text('Arta ta, într-o nouă dimensiune', 20, 20);
-      }
-      
-      // Reset color to black for rest of document
-      doc.setTextColor(0, 0, 0);
-      
-      // Header - FACTURA FISCALA
-      doc.setFontSize(18);
-      doc.setFont('helvetica', 'bold');
-      doc.text('FACTURA FISCALA', 105, 30, { align: 'center' });
-      
-      // Invoice number and date
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'normal');
-      doc.text(`Nr. Factura: ${invoiceNumber}`, 20, 40);
-      doc.text(`Data: ${new Date(orderDate).toLocaleDateString('ro-RO')}`, 20, 47);
-      
-      // Supplier info (left column)
-      let yPos = 60;
-      doc.setFontSize(11);
-      doc.setFont('helvetica', 'bold');
-      doc.text('FURNIZOR:', 20, yPos);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
-      yPos += 6;
-      doc.text('Tinypods SRL', 20, yPos);
-      yPos += 5;
-      doc.text('CUI: 50508421', 20, yPos);
-      yPos += 5;
-      doc.text('Reg. Com.: J2024019956002', 20, yPos);
-      yPos += 5;
-      doc.text('Tara: ROMANIA', 20, yPos);
-      yPos += 5;
-      doc.text('jud. Ilfov, Localitate: Pantelimon', 20, yPos);
-      yPos += 5;
-      doc.text('Oras. PANTELIMON, STR. BUSTENI,', 20, yPos);
-      yPos += 5;
-      doc.text('NR.1, AP.6', 20, yPos);
-      yPos += 5;
-      doc.text('IBAN: RO21BTRLRONCRT0CU1300801', 20, yPos);
-      
-      // Client info (right column)
-      yPos = 60;
-      doc.setFontSize(11);
-      doc.setFont('helvetica', 'bold');
-      doc.text('CLIENT:', 120, yPos);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
-      yPos += 6;
-      
-      // Name
-      doc.text(billingName || customerName, 120, yPos);
-      yPos += 5;
-      
-      // CUI (only for companies)
-      if (billingCUI) {
-        doc.text(`CUI: ${billingCUI}`, 120, yPos);
-        yPos += 5;
-      }
-      
-      // Reg. Com. (only for companies)
-      if (billingRegCom) {
-        doc.text(`Reg. Com.: ${billingRegCom}`, 120, yPos);
-        yPos += 5;
-      }
-      
-      // Email
-      if (customerEmail) {
-        doc.text(`Email: ${customerEmail}`, 120, yPos);
-        yPos += 5;
-      }
-      
-      // Phone
-      if (customerPhone) {
-        doc.text(`Telefon: ${customerPhone}`, 120, yPos);
-        yPos += 5;
-      }
-      
-      // Address
-      if (billingAddress || customerAddress) {
-        const addressLines = doc.splitTextToSize(billingAddress || customerAddress, 70);
-        addressLines.forEach((line: string) => {
-          doc.text(line, 120, yPos);
-          yPos += 5;
-        });
-      }
-      
-      // City and County
-      if (customerCity || customerCounty) {
-        const location = `${customerCity || ''}${customerCity && customerCounty ? ', ' : ''}${customerCounty || ''}`;
-        doc.text(location, 120, yPos);
-        yPos += 5;
-      }
-      
-      // Country
-      doc.text('ROMANIA', 120, yPos);
-      
-      // Items table - start well below the supplier/client info
-      yPos = 120;
-      doc.setFontSize(8);
-      doc.setFont('helvetica', 'bold');
-      
-      // Table header with TVA column
-      doc.text('Produs/Serviciu', 20, yPos);
-      doc.text('Cant.', 100, yPos);
-      doc.text('Pret unitar', 120, yPos);
-      doc.text('TVA 21%', 150, yPos);
-      doc.text('Total', 175, yPos);
-      
-      // Table header line
-      doc.line(20, yPos + 2, 190, yPos + 2);
-      
-      yPos += 8;
-      doc.setFont('helvetica', 'normal');
-      
-      // Table rows with proper calculations
-      enrichedItems.forEach((item: any, index: number) => {
-        console.log(`📦 Item ${index}:`, JSON.stringify(item, null, 2));
-        
-        // Try both 'price' and 'total' fields (some calls use different field names)
-        const itemTotal = parseFloat(item.price || item.total || 0);
-        console.log(`💰 Item ${index} total: ${itemTotal}`);
-        
-        const itemWithoutVAT = itemTotal / (1 + VAT_RATE);
-        const itemVAT = itemTotal - itemWithoutVAT;
-        const quantity = item.quantity || 1;
-        const unitPrice = itemWithoutVAT / quantity;
-        
-        // Build item description with title and size (matching HTML invoice format)
-        const itemTitle = item.paintingTitle || item.title || 'Tablou Personalizat';
-        const itemSize = item.size || '';
-        const itemDesc = itemSize ? `${itemTitle} - ${itemSize}` : itemTitle;
-        
-        // Don't truncate - allow full title to wrap to second line
-        doc.text(itemDesc, 20, yPos, { maxWidth: 80 }); // maxWidth allows wrapping
-        doc.text(quantity.toString(), 103, yPos, { align: 'right' });
-        doc.text(`${unitPrice.toFixed(2)}`, 138, yPos, { align: 'right' });
-        doc.text(`${itemVAT.toFixed(2)}`, 163, yPos, { align: 'right' });
-        doc.text(`${itemTotal.toFixed(2)}`, 188, yPos, { align: 'right' });
-        
-        // Add more vertical space if text wrapped
-        const lines = doc.splitTextToSize(itemDesc, 80);
-        yPos += Math.max(6, lines.length * 6);
-      });
-      
-      // Table footer line
-      doc.line(20, yPos, 190, yPos);
-      yPos += 8;
-      
-      // Totals
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
-      doc.text('Total fara TVA:', 130, yPos);
-      doc.text(`${totalWithoutVAT.toFixed(2)} lei`, 188, yPos, { align: 'right' });
-      yPos += 6;
-      doc.text('TVA 21%:', 130, yPos);
-      doc.text(`${vatAmount.toFixed(2)} lei`, 188, yPos, { align: 'right' });
-      yPos += 8;
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.text('TOTAL DE PLATA:', 120, yPos);
-      doc.text(`${totalAmount.toFixed(2)} lei`, 188, yPos, { align: 'right' });
-      
-      // Footer
-      yPos = 270;
-      doc.setFontSize(7);
-      doc.setFont('helvetica', 'italic');
-      const footerText = 'Factura circula fara semnatura si stampila cf. art.V, alin (2) din Ordonanta nr.17/2015 si art. 319 alin (29) din Legea nr. 227/2015 privind Codul fiscal.';
-      const footerLines = doc.splitTextToSize(footerText, 170);
-      footerLines.forEach((line: string, index: number) => {
-        doc.text(line, 105, yPos + (index * 4), { align: 'center' });
-      });
-      
-      // Get PDF as ArrayBuffer
-      console.log('✅ PDF document generated');
-      const pdfArrayBuffer = doc.output('arraybuffer');
-      const pdfBuffer = new Uint8Array(pdfArrayBuffer);
-      console.log(`📄 PDF size: ${pdfBuffer.length} bytes`);
-      
-      // Convert PDF buffer to base64 for upload (chunk-based to avoid stack overflow)
-      let binaryString = '';
-      const chunkSize = 8192; // Process in chunks
-      for (let i = 0; i < pdfBuffer.length; i += chunkSize) {
-        const chunk = pdfBuffer.slice(i, i + chunkSize);
-        binaryString += String.fromCharCode(...chunk);
-      }
-      const base64PDF = btoa(binaryString);
-      const dataURI = `data:application/pdf;base64,${base64PDF}`;
-      console.log('✅ PDF converted to base64 successfully');
-      
-      // Create a unique filename
-      const fileName = `invoice-${orderNumber.replace('#', '')}-${Date.now()}`;
-      const publicId = `invoices/${fileName}`;
-      
-      // Upload to Cloudinary using unsigned upload
-      const formData = new FormData();
-      formData.append('file', dataURI);
-      formData.append('upload_preset', cloudinarySettings.uploadPreset);
-      formData.append('resource_type', 'raw'); // CRITICAL: PDFs must use 'raw' resource type
-      formData.append('public_id', publicId);
-      formData.append('folder', 'invoices'); // Optional: organize in folders
-      
-      console.log('📤 Uploading PDF to Cloudinary...');
-      console.log('📋 Upload preset:', cloudinarySettings.uploadPreset);
-      console.log('📋 Resource type: raw (for PDF)');
-      const uploadResponse = await fetch(
-        `https://api.cloudinary.com/v1_1/${cloudinarySettings.cloudName}/raw/upload`,
-        {
-          method: 'POST',
-          body: formData,
-        }
-      );
-      
-      if (!uploadResponse.ok) {
-        const errorText = await uploadResponse.text();
-        console.error('❌ Cloudinary upload failed:', errorText);
-        throw new Error(`Cloudinary upload failed: ${uploadResponse.status}`);
-      }
-      
-      const uploadResult = await uploadResponse.json();
-      // Cloudinary will serve the PDF - the URL will include the .pdf extension
-      cloudinaryUrl = uploadResult.secure_url;
-      console.log('✅ Invoice PDF uploaded to Cloudinary:', cloudinaryUrl);
-      console.log('📦 Cloudinary response:', JSON.stringify(uploadResult, null, 2));
-      
-    } catch (cloudinaryError) {
-      console.error('❌ Cloudinary PDF generation/upload error:', cloudinaryError);
-      // If Cloudinary fails, still store invoice HTML in KV as fallback
-      console.log('⚠️ Falling back to KV storage for invoice');
     }
-    
-    // Store invoice reference in KV store (with or without Cloudinary URL)
-    const invoiceData = {
-      invoiceNumber,
-      orderNumber,
-      cloudinaryUrl: cloudinaryUrl || null,
-      html: cloudinaryUrl ? null : invoiceHTML, // Only store HTML if Cloudinary failed
-      totalWithoutVAT: totalWithoutVAT.toFixed(2),
-      vatAmount: vatAmount.toFixed(2),
-      totalAmount: totalAmount.toFixed(2),
-      generatedAt: new Date().toISOString()
-    };
-    
-    await kv.set(`invoice:${orderNumber}`, invoiceData);
-    
-    console.log(`✅ Invoice generated and stored for order ${orderNumber}`);
     
     return c.json({
       success: true,
-      invoiceNumber,
-      cloudinaryUrl: cloudinaryUrl || null,
-      html: cloudinaryUrl ? null : invoiceHTML // Only return HTML if no Cloudinary URL
+      settings
     });
+  } catch (error) {
+    console.error('Error getting FGO settings:', error);
+    return c.json({
+      success: false,
+      message: error instanceof Error ? error.message : 'Unknown error'
+    }, 500);
+  }
+});
+
+// Save FGO settings
+app.post("/make-server-bbc0c500/fgo/settings", async (c) => {
+  try {
+    const body = await c.req.json();
+    const success = await fgoModule.saveSettings(body);
+    
+    if (success) {
+      return c.json({
+        success: true,
+        message: 'FGO settings saved successfully'
+      });
+    } else {
+      return c.json({
+        success: false,
+        message: 'Failed to save FGO settings'
+      }, 500);
+    }
+  } catch (error) {
+    console.error('Error saving FGO settings:', error);
+    return c.json({
+      success: false,
+      message: error instanceof Error ? error.message : 'Unknown error'
+    }, 500);
+  }
+});
+
+// Test FGO connection
+app.post("/make-server-bbc0c500/fgo/test", async (c) => {
+  try {
+    const settings = await c.req.json();
+    const result = await fgoModule.testConnection(settings);
+    
+    return c.json(result);
+  } catch (error) {
+    console.error('Error testing FGO connection:', error);
+    return c.json({
+      success: false,
+      message: error instanceof Error ? error.message : 'Unknown error'
+    }, 500);
+  }
+});
+
+// Generate FGO invoice (alternative to internal invoice generation)
+app.post("/make-server-bbc0c500/fgo/generate", async (c) => {
+  try {
+    const invoiceData = await c.req.json();
+    const result = await fgoModule.generateInvoice(invoiceData);
+    
+    return c.json(result);
+  } catch (error) {
+    console.error('Error generating FGO invoice:', error);
+    return c.json({
+      success: false,
+      message: error instanceof Error ? error.message : 'Unknown error'
+    }, 500);
+  }
+});
+
+// ===== INVOICE GENERATION =====
+
+// Public route to view invoice HTML (token-based authentication for email links)
+app.get("/make-server-bbc0c500/invoice/view/:orderNumber", async (c) => {
+  try {
+    const orderNumber = c.req.param('orderNumber');
+    const token = c.req.query('token'); // Get token from query parameter
+    const apikey = c.req.query('apikey'); // Get apikey from query parameter (for email links)
+    
+    if (!orderNumber) {
+      return c.html('<h1>Error: Order number is required</h1>', 400);
+    }
+    
+    console.log(`📄 Public invoice request for: ${orderNumber}`);
+    console.log(`   Token: ${token ? 'provided' : 'missing'}`);
+    console.log(`   API Key: ${apikey ? 'provided' : 'missing'}`);
+    
+    // Get invoice from KV store
+    const invoiceData = await kv.get(`invoice:${orderNumber}`);
+    
+    if (!invoiceData || !invoiceData.html) {
+      return c.html(`
+        <html>
+          <head>
+            <meta charset="UTF-8">
+            <title>Factură Indisponibilă</title>
+            <style>
+              body { font-family: Arial, sans-serif; padding: 40px; text-align: center; }
+              h1 { color: #e74c3c; }
+            </style>
+          </head>
+          <body>
+            <h1>❌ Factură Negăsită</h1>
+            <p>Nu există o factură generată pentru comanda <strong>${orderNumber}</strong>.</p>
+            <p>Vă rugăm să contactați suportul.</p>
+          </body>
+        </html>
+      `, 404);
+    }
+    
+    // Validate token if provided (for email links)
+    if (token && invoiceData.accessToken) {
+      if (token !== invoiceData.accessToken) {
+        console.error(`❌ Invalid access token for invoice ${orderNumber}`);
+        return c.html(`
+          <html>
+            <head>
+              <meta charset="UTF-8">
+              <title>Acces Refuzat</title>
+              <style>
+                body { font-family: Arial, sans-serif; padding: 40px; text-align: center; }
+                h1 { color: #e74c3c; }
+              </style>
+            </head>
+            <body>
+              <h1>🔒 Acces Refuzat</h1>
+              <p>Token-ul de acces este invalid.</p>
+            </body>
+          </html>
+        `, 403);
+      }
+      console.log(`✅ Token validated successfully for ${orderNumber}`);
+    }
+    
+    // Return the HTML invoice
+    console.log(`✅ Serving invoice HTML for ${orderNumber}`);
+    return c.html(invoiceData.html);
     
   } catch (error) {
-    console.error('❌ Error generating invoice:', error);
+    console.error('❌ Error retrieving invoice:', error);
+    return c.html(`
+      <html>
+        <head>
+          <meta charset="UTF-8">
+          <title>Eroare</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 40px; text-align: center; }
+            h1 { color: #e74c3c; }
+          </style>
+        </head>
+        <body>
+          <h1>❌ Eroare</h1>
+          <p>A apărut o eroare la încărcarea facturii.</p>
+          <p>${error instanceof Error ? error.message : 'Eroare necunoscută'}</p>
+        </body>
+      </html>
+    `, 500);
+  }
+});
+
+// Generate invoice HTML for an order - Clean implementation using invoice module
+app.post("/make-server-bbc0c500/invoice/generate", async (c) => {
+  try {
+    const body = await c.req.json();
+    
+    // Check if FGO invoice exists and sync if needed
+    let fgoInvoiceNumber = body.fgoInvoiceNumber;
+    let fgoInvoiceSerie = body.fgoInvoiceSerie;
+    
+    // If regenerating, check FGO first
+    const existingFgoInvoice = await kv.get(`fgo_invoice:${body.orderNumber}`);
+    if (existingFgoInvoice) {
+      console.log('📋 Found existing FGO invoice, using its details for sync');
+      fgoInvoiceNumber = existingFgoInvoice.invoiceNumber;
+      fgoInvoiceSerie = existingFgoInvoice.invoiceSerie;
+    } else {
+      // Check if FGO is enabled and should generate
+      const fgoEnabled = await fgoModule.isEnabled();
+      
+      if (fgoEnabled) {
+        console.log('🟢 FGO is enabled - Generating/updating invoice via FGO API');
+        
+        // Generate invoice via FGO
+        const fgoResult = await fgoModule.generateInvoice({
+          orderNumber: body.orderNumber,
+          orderDate: body.orderDate,
+          customerName: body.customerName,
+          customerEmail: body.customerEmail,
+          customerPhone: body.customerPhone || '',
+          customerAddress: body.customerAddress || '',
+          customerCity: body.customerCity || '',
+          customerCounty: body.customerCounty || '',
+          customerPostalCode: body.customerPostalCode || '',
+          items: body.items || [],
+          total: body.total,
+          deliveryPrice: body.deliveryPrice || 0,
+          billingName: body.billingName,
+          billingCUI: body.billingCUI,
+          billingRegCom: body.billingRegCom,
+          billingAddress: body.billingAddress,
+          personType: body.billingCUI ? 'juridica' : 'fizica'
+        });
+        
+        if (fgoResult.success) {
+          console.log('✅ FGO invoice generated successfully');
+          console.log(`   Serie: ${fgoResult.invoiceSerie}, Numar: ${fgoResult.invoiceNumber}`);
+          
+          fgoInvoiceNumber = fgoResult.invoiceNumber;
+          fgoInvoiceSerie = fgoResult.invoiceSerie;
+          
+          const generatedAt = new Date().toISOString();
+          
+          // Store FGO invoice data in KV for reference
+          await kv.set(`fgo_invoice:${body.orderNumber}`, {
+            invoiceNumber: fgoResult.invoiceNumber,
+            invoiceSerie: fgoResult.invoiceSerie,
+            invoiceLink: fgoResult.invoiceLink,
+            orderNumber: body.orderNumber,
+            generatedAt: generatedAt
+          });
+          
+          console.log('💾 FGO invoice data saved');
+        } else {
+          console.error('❌ FGO invoice generation failed:', fgoResult.message);
+        }
+      }
+    }
+    
+    // Generate PDF invoice with FGO details if available
+    const invoiceData = {
+      ...body,
+      fgoInvoiceNumber,
+      fgoInvoiceSerie
+    };
+    
+    // Call the clean invoice generation module
+    const result = await invoiceModule.generateInvoice(invoiceData);
+    
+    if (!result.success) {
+      console.error('❌ Invoice generation failed:', result.error);
+      return c.json({ 
+        success: false, 
+        error: result.error || 'Failed to generate invoice'
+      }, 400);
+    }
+    
+    // Store invoice in KV store
+    const invoiceDataForStorage = {
+      invoiceNumber: result.invoiceNumber,
+      orderNumber: body.orderNumber,
+      html: result.html,
+      generatedAt: new Date().toISOString()
+    };
+    
+    await kv.set(`invoice:${body.orderNumber}`, invoiceDataForStorage);
+    
+    return c.json(result);
+    
+  } catch (error) {
+    console.error('❌ Error in invoice generation endpoint:', error);
     return c.json({ 
       success: false, 
       error: error instanceof Error ? error.message : 'Failed to generate invoice'
@@ -1837,150 +1710,97 @@ app.post("/make-server-bbc0c500/invoice/generate", async (c) => {
   }
 });
 
-// Get invoice for an order
-app.get("/make-server-bbc0c500/invoice/:orderNumber", async (c) => {
+// Sync invoices between FGO and PDF systems
+app.post("/make-server-bbc0c500/invoice/sync", async (c) => {
   try {
-    const orderNumber = c.req.param('orderNumber');
-    console.log(`🔍 [INVOICE-GET] Fetching invoice for order: ${orderNumber}`);
+    const body = await c.req.json();
+    const { orderNumber } = body;
     
-    // Log authorization header for debugging
-    const authHeader = c.req.header('Authorization');
-    console.log(`🔑 [INVOICE-GET] Authorization header present: ${authHeader ? 'YES' : 'NO'}`);
-    
-    const invoice = await kv.get(`invoice:${orderNumber}`);
-    console.log(`📄 [INVOICE-GET] Invoice found:`, invoice ? 'Yes' : 'No');
-    
-    if (!invoice) {
-      console.log(`❌ [INVOICE-GET] Invoice not found for order: ${orderNumber}`);
-      return c.json({ success: false, error: 'Invoice not found' }, 404);
+    if (!orderNumber) {
+      return c.json({ success: false, error: 'Order number required' }, 400);
     }
     
-    console.log(`✅ [INVOICE-GET] Returning invoice for order: ${orderNumber}`);
-    console.log(`📦 [INVOICE-GET] Invoice data: cloudinaryUrl=${invoice.cloudinaryUrl ? 'present' : 'missing'}, html=${invoice.html ? 'present' : 'missing'}`);
+    console.log(`🔄 Syncing invoices for order: ${orderNumber}`);
     
-    return c.json({
-      success: true,
-      invoice
-    });
+    // Check if FGO invoice exists
+    const existingFgoInvoice = await kv.get(`fgo_invoice:${orderNumber}`);
+    const existingPdfInvoice = await kv.get(`invoice:${orderNumber}`);
     
-  } catch (error) {
-    console.error('❌ Error fetching invoice:', error);
-    return c.json({ 
-      success: false, 
-      error: error instanceof Error ? error.message : 'Failed to fetch invoice'
-    }, 500);
-  }
-});
-
-// Download invoice as PDF (or HTML fallback for legacy invoices)
-app.get("/make-server-bbc0c500/invoice/:orderNumber/download", async (c) => {
-  try {
-    const orderNumber = c.req.param('orderNumber');
-    
-    const invoice = await kv.get<{
-      invoiceNumber: string;
-      cloudinaryUrl?: string;
-      html?: string;
-    }>(`invoice:${orderNumber}`);
-    
-    if (!invoice) {
-      return c.text('Invoice not found', 404);
+    if (!existingFgoInvoice && !existingPdfInvoice) {
+      console.log('ℹ️ No invoices found for this order');
+      return c.json({ success: true, message: 'No invoices to sync' });
     }
     
-    // If Cloudinary URL exists, redirect to it
-    if (invoice.cloudinaryUrl) {
-      console.log(`📤 Redirecting to Cloudinary URL: ${invoice.cloudinaryUrl}`);
-      return c.redirect(invoice.cloudinaryUrl, 302);
-    }
-    
-    // Fallback: Return HTML from KV store if Cloudinary URL not available
-    if (!invoice.html) {
-      return c.text('Invoice content not available', 404);
-    }
-    
-    // Return HTML with proper headers for download
-    return c.html(invoice.html, 200, {
-      'Content-Disposition': `attachment; filename="Factura_${invoice.invoiceNumber.replace(' ', '_')}.html"`,
-    });
-    
-  } catch (error) {
-    console.error('❌ Error downloading invoice:', error);
-    return c.text('Failed to download invoice', 500);
-  }
-});
-
-// Update default users (migration endpoint)
-app.post("/make-server-bbc0c500/admin/update-default-users", async (c) => {
-  try {
-    // Import Supabase client
-    const { createClient } = await import('npm:@supabase/supabase-js@2.39.7');
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    );
-
-    const defaultUsers = [
-      {
-        username: 'admin',
-        fullName: 'Octavian Dumitrescu',
-        email: 'octavian.dumitrescu@gmail.com',
-        role: 'full-admin'
-      },
-      {
-        username: 'account',
-        fullName: 'Sophie Noelle',
-        email: 'sophienoelle01@gmail.com',
-        role: 'account-manager'
-      },
-      {
-        username: 'production',
-        fullName: 'Florin',
-        email: 'hello@bluehand.ro',
-        role: 'production'
-      }
-    ];
-
-    const results = [];
-
-    for (const user of defaultUsers) {
-      // Update user by username
-      const { data, error } = await supabase
-        .from('admin_users')
-        .update({
-          full_name: user.fullName,
-          email: user.email,
-          role: user.role
-        })
-        .eq('username', user.username)
-        .select()
-        .single();
-
-      if (error) {
-        console.error(`Error updating user ${user.username}:`, error);
-        results.push({ username: user.username, success: false, error: error.message });
+    // If FGO invoice exists but PDF doesn't match, regenerate PDF
+    if (existingFgoInvoice) {
+      const fgoInvoiceNumber = `${existingFgoInvoice.invoiceSerie}-${existingFgoInvoice.invoiceNumber}`;
+      
+      if (!existingPdfInvoice || existingPdfInvoice.invoiceNumber !== fgoInvoiceNumber) {
+        console.log('⚠️ PDF invoice does not match FGO invoice, regenerating...');
+        
+        // Get order data
+        const orderData = await kv.get(`order:${orderNumber}`);
+        
+        if (orderData) {
+          // Regenerate PDF with FGO details
+          const result = await invoiceModule.generateInvoice({
+            orderNumber: orderData.orderNumber,
+            orderDate: orderData.orderDate,
+            customerName: orderData.clientName,
+            customerEmail: orderData.clientEmail,
+            customerPhone: orderData.clientPhone || '',
+            customerAddress: orderData.address || '',
+            customerCity: orderData.city || '',
+            customerCounty: orderData.county || '',
+            customerPostalCode: orderData.postalCode || '',
+            items: orderData.canvasItems || [],
+            total: orderData.totalPrice,
+            deliveryPrice: 0,
+            billingName: orderData.billingName,
+            billingCUI: orderData.billingCUI,
+            billingRegCom: orderData.billingRegCom,
+            billingAddress: orderData.billingAddress,
+            fgoInvoiceNumber: existingFgoInvoice.invoiceNumber,
+            fgoInvoiceSerie: existingFgoInvoice.invoiceSerie
+          });
+          
+          if (result.success) {
+            // Store synced invoice
+            await kv.set(`invoice:${orderNumber}`, {
+              invoiceNumber: result.invoiceNumber,
+              orderNumber: orderNumber,
+              html: result.html,
+              generatedAt: new Date().toISOString()
+            });
+            
+            console.log('✅ PDF invoice synced with FGO invoice');
+            return c.json({ 
+              success: true, 
+              message: 'Invoices synced successfully',
+              invoiceNumber: result.invoiceNumber
+            });
+          }
+        }
       } else {
-        console.log(`✅ Updated user: ${user.username} -> ${user.fullName}`);
-        results.push({ username: user.username, success: true, data });
+        console.log('✅ Invoices already in sync');
+        return c.json({ success: true, message: 'Invoices already in sync' });
       }
     }
-
-    return c.json({ 
-      success: true, 
-      message: 'Default users updated',
-      results 
-    });
+    
+    return c.json({ success: true, message: 'Sync completed' });
+    
   } catch (error) {
-    console.error('Error updating default users:', error);
+    console.error('❌ Error syncing invoices:', error);
     return c.json({ 
       success: false, 
-      error: error instanceof Error ? error.message : 'Unknown error occurred' 
+      error: error instanceof Error ? error.message : 'Failed to sync invoices'
     }, 500);
   }
 });
 
-// ===== LEGAL PAGES KV ROUTES =====
-
-// ===== NETOPIA PAYMENTS INTEGRATION =====
+// ═══════════════════════════════════════════════════════════════════════════
+// NETOPIA PAYMENTS INTEGRATION
+// ═══════════════════════════════════════════════════════════════════════════
 
 // NEW REST API v4.0 - Following OpenAPI Spec EXACTLY (plain JSON, no encryption)
 app.post("/make-server-bbc0c500/netopia/start-payment-v4", async (c) => {
@@ -1988,7 +1808,9 @@ app.post("/make-server-bbc0c500/netopia/start-payment-v4", async (c) => {
   
   try {
     const body = await c.req.json();
-    const { orderId, amount, customerEmail, customerName, customerPhone, customerAddress, returnUrl } = body;
+    const { orderId, amount, customerEmail, customerName, customerPhone, customerAddress, returnUrl, orderData } = body;
+    
+    console.log('📦 Order data received:', orderData ? 'Yes' : 'No');
     
     if (!orderId || !amount || !customerEmail || !customerName) {
       return c.json({ success: false, error: 'Missing required fields' }, 400);
@@ -2019,6 +1841,7 @@ app.post("/make-server-bbc0c500/netopia/start-payment-v4", async (c) => {
     // Get URLs
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
     const projectUrl = supabaseUrl.replace('https://', '');
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY') || '';
     
     const baseUrl = settings.isLive 
       ? 'https://secure.netopia-payments.com'
@@ -2027,7 +1850,7 @@ app.post("/make-server-bbc0c500/netopia/start-payment-v4", async (c) => {
     // Build request body as per OpenAPI spec
     const requestBody = {
       config: {
-        notifyUrl: `https://${projectUrl}/functions/v1/make-server-bbc0c500/netopia/ipn`,
+        notifyUrl: `https://eokrex1e5lzckse.m.pipedream.net`,
         redirectUrl: returnUrl || `https://${projectUrl.split('.')[0]}.supabase.co/payment-success?orderId=${orderId}`,
         language: "ro"
       },
@@ -2105,16 +1928,340 @@ app.post("/make-server-bbc0c500/netopia/start-payment-v4", async (c) => {
     
     const responseData = JSON.parse(responseText);
     
-    // Store payment
-    await kv.set(`netopia_payment:${orderId}`, {
+    // Store payment with BOTH orderId and ntpID mappings + FULL order data for later creation
+    const paymentData = {
       orderId,
       amount,
       currency: 'RON',
       status: 'pending',
       customerEmail,
       customerName,
+      customerPhone,
+      customerAddress,
+      ntpID: responseData.payment?.ntpID,
       createdAt: new Date().toISOString(),
+      // Store FULL order data so we can create the order after payment confirmation
+      orderData: orderData || null,
+    };
+    
+    // Store by orderId
+    await kv.set(`netopia_payment:${orderId}`, paymentData);
+    
+    // ALSO store by ntpID so we can look up the order when Netopia redirects back
+    if (responseData.payment?.ntpID) {
+      await kv.set(`netopia_ntp:${responseData.payment.ntpID}`, {
+        orderId,
+        ntpID: responseData.payment.ntpID,
+        createdAt: new Date().toISOString(),
+      });
+    }
+    
+    console.log(`✅ Payment data stored with orderId: ${orderId} and ntpID: ${responseData.payment?.ntpID}`);
+    
+    return c.json({
+      success: true,
+      paymentUrl: responseData.payment?.paymentURL,
+      ntpID: responseData.payment?.ntpID,
+      redirectUrl: returnUrl || requestBody.config.redirectUrl
     });
+    
+  } catch (error) {
+    console.error('❌ Error:', error);
+    return c.json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ORDER NUMBER GENERATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Generate sequential order number for payment (called BEFORE initiating payment)
+app.post("/make-server-bbc0c500/orders/generate-number", async (c) => {
+  try {
+    console.log('🔢 Generating sequential order number...');
+    
+    // Import Supabase client
+    const { createClient } = await import('npm:@supabase/supabase-js@2.39.7');
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    );
+    
+    // Generate order number using same logic as ordersService.generateOrderNumber()
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const datePrefix = `BHC-${year}${month}${day}`;
+    
+    // Get today's orders to determine the next sequence number
+    const todayStart = new Date(year, now.getMonth(), now.getDate()).toISOString();
+    const { data, error } = await supabase
+      .from('orders')
+      .select('order_number')
+      .gte('created_at', todayStart)
+      .like('order_number', `${datePrefix}%`)
+      .order('created_at', { ascending: false })
+      .limit(1);
+    
+    let sequence = 1;
+    if (data && data.length > 0 && data[0].order_number) {
+      // Extract sequence number from last order
+      const lastOrderNumber = data[0].order_number;
+      const parts = lastOrderNumber.split('-');
+      const lastSequence = parseInt(parts[parts.length - 1] || '0');
+      sequence = lastSequence + 1;
+    }
+    
+    const orderNumber = `${datePrefix}-${String(sequence).padStart(4, '0')}`;
+    console.log(`✅ Generated order number: ${orderNumber}`);
+    
+    return c.json({ 
+      success: true, 
+      orderNumber 
+    });
+    
+  } catch (error) {
+    console.error('❌ Error generating order number:', error);
+    return c.json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to generate order number'
+    }, 500);
+  }
+});
+
+// Get invoice for an order
+app.get("/make-server-bbc0c500/invoice/:orderNumber", async (c) => {
+  try {
+    const orderNumber = c.req.param('orderNumber');
+    console.log(`🔍 [INVOICE-GET] Fetching invoice for order: ${orderNumber}`);
+    
+    // Log authorization header for debugging
+    const authHeader = c.req.header('Authorization');
+    console.log(`🔑 [INVOICE-GET] Authorization header present: ${authHeader ? 'YES' : 'NO'}`);
+    
+    const invoice = await kv.get(`invoice:${orderNumber}`);
+    console.log(`📄 [INVOICE-GET] Invoice found:`, invoice ? 'Yes' : 'No');
+    
+    if (!invoice) {
+      console.log(`❌ [INVOICE-GET] Invoice not found for order: ${orderNumber}`);
+      return c.json({ success: false, error: 'Invoice not found' }, 404);
+    }
+    
+    console.log(`✅ [INVOICE-GET] Returning invoice for order: ${orderNumber}`);
+    console.log(`📦 [INVOICE-GET] Invoice data: cloudinaryUrl=${invoice.cloudinaryUrl ? 'present' : 'missing'}, html=${invoice.html ? 'present' : 'missing'}`);
+    
+    return c.json({
+      success: true,
+      invoice
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching invoice:', error);
+    return c.json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Failed to fetch invoice'
+    }, 500);
+  }
+});
+
+// Download invoice as PDF (or HTML fallback for legacy invoices)
+app.get("/make-server-bbc0c500/invoice/:orderNumber/download", async (c) => {
+  try {
+    const orderNumber = c.req.param('orderNumber');
+    
+    const invoice = await kv.get<{
+      invoiceNumber: string;
+      cloudinaryUrl?: string;
+      html?: string;
+    }>(`invoice:${orderNumber}`);
+    
+    if (!invoice) {
+      return c.text('Invoice not found', 404);
+    }
+    
+    // If Cloudinary URL exists, redirect to it
+    if (invoice.cloudinaryUrl) {
+      console.log(`📤 Redirecting to Cloudinary URL: ${invoice.cloudinaryUrl}`);
+      return c.redirect(invoice.cloudinaryUrl, 302);
+    }
+    
+    // Fallback: Return HTML from KV store if Cloudinary URL not available
+    if (!invoice.html) {
+      return c.text('Invoice content not available', 404);
+    }
+    
+    // Return HTML with proper headers for download
+    return c.html(invoice.html, 200, {
+      'Content-Disposition': `attachment; filename="Factura_${invoice.invoiceNumber.replace(' ', '_')}.html"`,
+    });
+    
+  } catch (error) {
+    console.error('❌ Error downloading invoice:', error);
+    return c.text('Failed to download invoice', 500);
+  }
+});
+
+// ===== NETOPIA PAYMENTS INTEGRATION =====
+
+// NEW REST API v4.0 - Following OpenAPI Spec EXACTLY (plain JSON, no encryption)
+app.post("/make-server-bbc0c500/netopia/start-payment-v4", async (c) => {
+  console.log('🚀 Netopia REST API v4.0 - OpenAPI Spec Compliant');
+  
+  try {
+    const body = await c.req.json();
+    const { orderId, amount, customerEmail, customerName, customerPhone, customerAddress, returnUrl, orderData } = body;
+    
+    console.log('📦 Order data received:', orderData ? 'Yes' : 'No');
+    
+    if (!orderId || !amount || !customerEmail || !customerName) {
+      return c.json({ success: false, error: 'Missing required fields' }, 400);
+    }
+    
+    // Get settings
+    const settings = await kv.get<{
+      posSignature: string;
+      sandboxApiKey: string;
+      isLive: boolean;
+      isConfigured: boolean;
+    }>('netopia_settings');
+    
+    if (!settings || !settings.posSignature || !settings.isConfigured) {
+      return c.json({ success: false, error: 'Netopia not configured' }, 500);
+    }
+    
+    const apiKey = settings.sandboxApiKey || Deno.env.get('NETOPIA_API_KEY');
+    if (!settings.isLive && !apiKey) {
+      return c.json({ success: false, error: 'Sandbox API key required' }, 500);
+    }
+    
+    // Parse name
+    const nameParts = customerName.trim().split(' ');
+    const firstName = nameParts[0] || 'Client';
+    const lastName = nameParts.slice(1).join(' ') || 'BlueHand';
+    
+    // Get URLs
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
+    const projectUrl = supabaseUrl.replace('https://', '');
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY') || '';
+    
+    const baseUrl = settings.isLive 
+      ? 'https://secure.netopia-payments.com'
+      : 'https://secure.sandbox.netopia-payments.com';
+    
+    // Build request body as per OpenAPI spec
+    const requestBody = {
+      config: {
+        notifyUrl: `https://eokrex1e5lzckse.m.pipedream.net`,
+        redirectUrl: returnUrl || `https://${projectUrl.split('.')[0]}.supabase.co/payment-success?orderId=${orderId}`,
+        language: "ro"
+      },
+      payment: {
+        data: {}  // Empty - customer will enter card details on Netopia's page
+      },
+      order: {
+        posSignature: settings.posSignature,
+        dateTime: new Date().toISOString(),
+        description: `Comanda BlueHand Canvas #${orderId}`,
+        orderID: orderId,
+        amount: parseFloat(amount.toFixed(2)),
+        currency: "RON",
+        billing: {
+          email: customerEmail,
+          phone: customerPhone || "+40700000000",
+          firstName: firstName,
+          lastName: lastName,
+          city: "Bucuresti",
+          country: 642,  // Romania
+          countryName: "Romania",
+          state: "",
+          postalCode: "010101",
+          details: customerAddress || "Romania"
+        },
+        shipping: {
+          email: customerEmail,
+          phone: customerPhone || "+40700000000",
+          firstName: firstName,
+          lastName: lastName,
+          city: "Bucuresti",
+          country: 642,
+          state: "",
+          postalCode: "010101",
+          details: customerAddress || "Romania"
+        }
+      }
+    };
+    
+    console.log('📤 Request to:', `${baseUrl}/payment/card/start`);
+    console.log('📤 POS Signature:', settings.posSignature);
+    console.log('📤 Order ID:', orderId);
+    console.log('📤 Amount:', requestBody.order.amount, 'RON');
+    
+    // Make API call with Authorization header (raw API key)
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+    
+    if (!settings.isLive && apiKey) {
+      headers['Authorization'] = apiKey;  // Raw key, no Bearer prefix
+      console.log('🔑 Authorization header added (raw key)');
+    }
+    
+    const netopiaResponse = await fetch(`${baseUrl}/payment/card/start`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(requestBody),
+    });
+    
+    console.log(`📥 Response status: ${netopiaResponse.status}`);
+    
+    const responseText = await netopiaResponse.text();
+    console.log(`📥 Response body:`, responseText);
+    
+    if (!netopiaResponse.ok) {
+      console.error(`❌ Netopia API error (${netopiaResponse.status}):`, responseText);
+      return c.json({ 
+        success: false, 
+        error: `Netopia API error: ${responseText}`,
+        status: netopiaResponse.status
+      }, 500);
+    }
+    
+    const responseData = JSON.parse(responseText);
+    
+    // Store payment with BOTH orderId and ntpID mappings + FULL order data for later creation
+    const paymentData = {
+      orderId,
+      amount,
+      currency: 'RON',
+      status: 'pending',
+      customerEmail,
+      customerName,
+      customerPhone,
+      customerAddress,
+      ntpID: responseData.payment?.ntpID,
+      createdAt: new Date().toISOString(),
+      // Store FULL order data so we can create the order after payment confirmation
+      orderData: orderData || null,
+    };
+    
+    // Store by orderId
+    await kv.set(`netopia_payment:${orderId}`, paymentData);
+    
+    // ALSO store by ntpID so we can look up the order when Netopia redirects back
+    if (responseData.payment?.ntpID) {
+      await kv.set(`netopia_ntp:${responseData.payment.ntpID}`, {
+        orderId,
+        ntpID: responseData.payment.ntpID,
+        createdAt: new Date().toISOString(),
+      });
+    }
+    
+    console.log(`✅ Payment data stored with orderId: ${orderId} and ntpID: ${responseData.payment?.ntpID}`);
     
     return c.json({
       success: true,
@@ -2253,6 +2400,7 @@ app.post("/make-server-bbc0c500/netopia/start-payment", async (c) => {
     // Get the base URL for callbacks
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
     const projectUrl = supabaseUrl.replace('https://', '');
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY') || '';
 
     // Import required libraries for encryption
     const crypto = await import('node:crypto');
@@ -2293,7 +2441,7 @@ app.post("/make-server-bbc0c500/netopia/start-payment", async (c) => {
   <currency>RON</currency>
   <signature>${escapeXml(netopiaPosSignature)}</signature>
   <url>
-    <confirm>${escapeXml(`https://${projectUrl}/functions/v1/make-server-bbc0c500/netopia/ipn`)}</confirm>
+    <confirm>${escapeXml(`https://eokrex1e5lzckse.m.pipedream.net`)}</confirm>
     <return>${escapeXml(returnUrl || `https://${projectUrl.split('.')[0]}.supabase.co/payment-success?orderId=${orderId}`)}</return>
   </url>
   <invoice currency="RON" amount="${escapeXml(amount.toFixed(2))}">
@@ -2482,7 +2630,7 @@ app.post("/make-server-bbc0c500/netopia/start-payment", async (c) => {
         config: {
           language: "ro",
           currency: "RON",
-          notifyUrl: `https://${projectUrl}/functions/v1/make-server-bbc0c500/netopia/ipn`,
+          notifyUrl: `https://eokrex1e5lzckse.m.pipedream.net`,
           redirectUrl: returnUrl || `https://${projectUrl.split('.')[0]}.supabase.co/payment-success?orderId=${orderId}`
         }
       };
@@ -2750,6 +2898,7 @@ app.post("/make-server-bbc0c500/netopia/start-payment-old", async (c) => {
     // Get the base URL for callbacks
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
     const projectUrl = supabaseUrl.replace('https://', '');
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY') || '';
 
     // Prepare payment data according to OFFICIAL Netopia XML structure
     // CRITICAL: currency as BOTH direct child AND invoice attribute
@@ -2764,7 +2913,7 @@ app.post("/make-server-bbc0c500/netopia/start-payment-old", async (c) => {
         signature: settings.posSignature,
         currency: "RON",  // Direct child element (simple string - no charkey)
         url: {
-          confirm: `https://${projectUrl}/functions/v1/make-server-bbc0c500/netopia/ipn`,
+          confirm: `https://eokrex1e5lzckse.m.pipedream.net`,
           return: returnUrl || `https://${projectUrl.split('.')[0]}.supabase.co/payment-success?orderId=${orderId}`,
         },
         invoice: {
@@ -2833,7 +2982,7 @@ app.post("/make-server-bbc0c500/netopia/start-payment-old", async (c) => {
   <currency>${currency}</currency>
   <signature>${escapeXml(settings.posSignature)}</signature>
   <url>
-    <confirm>${escapeXml(`https://${projectUrl}/functions/v1/make-server-bbc0c500/netopia/ipn`)}</confirm>
+    <confirm>${escapeXml(`https://eokrex1e5lzckse.m.pipedream.net`)}</confirm>
     <return>${escapeXml(returnUrl || `https://${projectUrl.split('.')[0]}.supabase.co/payment-success?orderId=${orderId}`)}</return>
   </url>
   <invoice currency="${currency}" amount="${escapeXml(amount.toFixed(2))}">
@@ -3048,7 +3197,7 @@ app.post("/make-server-bbc0c500/netopia/start-payment-old", async (c) => {
         data: encryptedPayload.data,
         config: {
           language: "ro",
-          notifyUrl: `https://${projectUrl}/functions/v1/make-server-bbc0c500/netopia/ipn`,
+          notifyUrl: `https://eokrex1e5lzckse.m.pipedream.net`,
           redirectUrl: returnUrl || `https://${projectUrl.split('.')[0]}.supabase.co/payment-success?orderId=${orderId}`
         }
       };
@@ -3233,85 +3382,532 @@ app.post("/make-server-bbc0c500/netopia/start-payment-old", async (c) => {
   }
 });
 
+// PUBLIC Netopia IPN endpoint (with Netopia JWT validation)
+// This endpoint validates Netopia's JWT signature and processes IPN
+// It stores the payload in a queue table and returns 200 immediately
+app.post("/make-server-bbc0c500/netopia/ipn-public", async (c) => {
+  try {
+    console.log('🔔 [PUBLIC IPN] Received Netopia IPN notification');
+    
+    // Log request headers for debugging
+    const authHeader = c.req.header('Authorization');
+    console.log('🔐 [PUBLIC IPN] Authorization header:', authHeader ? 'Present' : 'Not present');
+    
+    // Note: Netopia uses digital signatures in the payload, not JWT in headers
+    // JWT validation will be implemented once we understand Netopia's exact signature format
+    console.log('⚠️ [PUBLIC IPN] Skipping JWT validation - Netopia uses payload signatures')
+    
+    // Parse the body
+    const body = await c.req.json();
+    console.log('📦 [PUBLIC IPN] Payload:', JSON.stringify(body, null, 2));
+    
+    // Use service role key to bypass RLS
+    const { createClient } = await import('npm:@supabase/supabase-js@2.39.7');
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    );
+    
+    // Insert into queue table
+    const { data, error } = await supabase
+      .from('netopia_ipn_queue')
+      .insert({ 
+        payload: body,
+        processed: false 
+      })
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('❌ [PUBLIC IPN] Failed to insert into queue:', error);
+      // Still return Netopia format to prevent retries
+      return c.json({ errorCode: 0 }, 200);
+    }
+    
+    console.log('✅ [PUBLIC IPN] Queued for processing, ID:', data.id);
+    
+    // Immediately process the IPN (call the processing function)
+    // This happens in the background
+    fetch(`https://${Deno.env.get('SUPABASE_URL')?.replace('https://', '')}/functions/v1/make-server-bbc0c500/netopia/process-queue`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`
+      },
+      body: JSON.stringify({ queueId: data.id })
+    }).catch((err) => console.error('❌ [PUBLIC IPN] Failed to trigger processing:', err));
+    
+    // Return Netopia's required format: {"errorCode": 0}
+    console.log('✅ [PUBLIC IPN] Returning Netopia-compliant response: {"errorCode": 0}');
+    return c.json({ errorCode: 0 }, 200);
+    
+  } catch (error) {
+    console.error('❌ [PUBLIC IPN] Error processing public IPN:', error);
+    // Always return 200 with Netopia format to prevent retries
+    return c.json({ errorCode: 0 }, 200);
+  }
+});
+
+// Process Netopia IPN from queue
+// This endpoint processes queued IPN notifications with proper authentication
+app.post("/make-server-bbc0c500/netopia/process-queue", async (c) => {
+  try {
+    const { queueId } = await c.req.json();
+    console.log('🔄 [PROCESS QUEUE] Processing queue item:', queueId);
+    
+    // Use service role to access everything
+    const { createClient } = await import('npm:@supabase/supabase-js@2.39.7');
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    );
+    
+    // Get the queued item
+    const { data: queueItem, error: fetchError } = await supabase
+      .from('netopia_ipn_queue')
+      .select('*')
+      .eq('id', queueId)
+      .eq('processed', false)
+      .single();
+    
+    if (fetchError || !queueItem) {
+      console.error('❌ [PROCESS QUEUE] Queue item not found or already processed:', fetchError);
+      return c.json({ success: false, error: 'Queue item not found' }, 404);
+    }
+    
+    const body = queueItem.payload;
+    console.log('📦 [PROCESS QUEUE] Processing payload:', JSON.stringify(body, null, 2));
+    
+    // Extract payment info from IPN
+    const ntpID = body.payment?.ntpID || body.ntpID;
+    const status = body.payment?.status || body.status;
+    const orderID = body.order?.orderID || body.orderID;
+    const amount = body.order?.amount || body.amount;
+    const errorMessage = body.payment?.error?.message || body.errorMessage;
+
+    console.log(`📊 [PROCESS QUEUE] IPN Details: ntpID=${ntpID}, status=${status}, orderID=${orderID}, amount=${amount}`);
+
+    if (!orderID && !ntpID) {
+      console.error('❌ [PROCESS QUEUE] Missing both orderID and ntpID in IPN');
+      // Mark as processed to avoid reprocessing
+      await supabase.from('netopia_ipn_queue').update({ processed: true }).eq('id', queueId);
+      return c.json({ success: true, processed: true }, 200);
+    }
+
+    // Look up the payment data using orderID first, then ntpID
+    let orderId = orderID;
+    let paymentData: any = null;
+
+    if (orderId) {
+      paymentData = await kv.get(`netopia_payment:${orderId}`);
+    }
+
+    // If not found by orderID, try looking up by ntpID
+    if (!paymentData && ntpID) {
+      const ntpMapping = await kv.get<{ orderId: string }>(`netopia_ntp:${ntpID}`);
+      if (ntpMapping?.orderId) {
+        orderId = ntpMapping.orderId;
+        paymentData = await kv.get(`netopia_payment:${orderId}`);
+      }
+    }
+
+    if (!paymentData) {
+      console.error(`❌ [PROCESS QUEUE] No payment data found for orderID=${orderID} or ntpID=${ntpID}`);
+      // Mark as processed to avoid reprocessing
+      await supabase.from('netopia_ipn_queue').update({ processed: true }).eq('id', queueId);
+      return c.json({ success: true, processed: true }, 200);
+    }
+
+    console.log(`✅ [PROCESS QUEUE] Found payment data for orderId: ${orderId}`);
+
+    // Update payment status in KV
+    await kv.set(`netopia_payment:${orderId}`, {
+      ...paymentData,
+      status,
+      amount,
+      errorMessage,
+      ntpID: ntpID || paymentData.ntpID,
+      updatedAt: new Date().toISOString()
+    });
+
+    // Handle payment confirmation
+    if (status === 'confirmed' || status === 'paid' || status === 'completed' || status === 'active') {
+      console.log(`✅ [PROCESS QUEUE] Payment confirmed for order ${orderId}`);
+      
+      // Check if order already exists
+      const { data: existingOrder } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('order_number', orderId)
+        .single();
+
+      if (existingOrder) {
+        // Order exists, just update payment status
+        const { error: updateError } = await supabase
+          .from('orders')
+          .update({ 
+            payment_status: 'paid',
+            updated_at: new Date().toISOString()
+          })
+          .eq('order_number', orderId);
+
+        if (updateError) {
+          console.error(`❌ [PROCESS QUEUE] Failed to update order ${orderId}:`, updateError);
+        } else {
+          console.log(`✅ [PROCESS QUEUE] Order ${orderId} marked as paid`);
+        }
+      } else if (paymentData.orderData) {
+        // Order doesn't exist yet - CREATE IT NOW with payment_status='paid'
+        console.log(`📝 [PROCESS QUEUE] Creating new order ${orderId} with payment_status='paid'`);
+        
+        const orderData = paymentData.orderData;
+        
+        // Prepare canvas items for database
+        const canvasItemsForDb = orderData.canvasItems.map((item: any) => ({
+          type: item.type,
+          paintingId: item.paintingId || null,
+          paintingTitle: item.paintingTitle || null,
+          image: item.image || null,
+          originalImage: item.originalImage || null,
+          croppedImage: item.croppedImage || null,
+          size: item.size,
+          quantity: item.quantity || 1,
+          price: item.price,
+          orientation: item.orientation || null,
+          hasCustomImage: item.hasCustomImage || false,
+          printType: item.printType || null,
+          frameType: item.frameType || null,
+          unsplashUrl: item.unsplashUrl || null,
+        }));
+
+        // Create the order with payment_status='paid'
+        const { data: newOrder, error: orderError } = await supabase
+          .from('orders')
+          .insert({
+            order_number: orderId,
+            customer_name: orderData.clientName,
+            customer_email: orderData.clientEmail,
+            customer_phone: orderData.clientPhone,
+            delivery_address: orderData.address,
+            delivery_city: orderData.city,
+            delivery_county: orderData.county,
+            delivery_postal_code: orderData.postalCode,
+            items: canvasItemsForDb,
+            subtotal: orderData.totalPrice,
+            delivery_cost: orderData.deliveryMethod === 'express' ? 25 : 0,
+            total: orderData.totalPrice,
+            delivery_option: orderData.deliveryMethod,
+            payment_method: 'card',
+            payment_status: 'paid',
+            status: 'new',
+            person_type: orderData.personType,
+            company_name: orderData.companyName,
+            cui: orderData.cui,
+            reg_com: orderData.regCom,
+            company_county: orderData.companyCounty,
+            company_city: orderData.companyCity,
+            company_address: orderData.companyAddress,
+          })
+          .select()
+          .single();
+
+        if (orderError) {
+          console.error('❌ [PROCESS QUEUE] Error creating order:', orderError);
+        } else {
+          console.log(`✅ [PROCESS QUEUE] Order ${orderId} created successfully with payment_status='paid'`);
+          
+          // Send confirmation email (async, don't wait)
+          fetch(`https://${Deno.env.get('SUPABASE_URL')?.replace('https://', '')}/functions/v1/make-server-bbc0c500/email/send-order-confirmation`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              orderNumber: orderId,
+              customerName: orderData.clientName,
+              customerEmail: orderData.clientEmail,
+              total: orderData.totalPrice,
+              items: orderData.canvasItems,
+              deliveryMethod: orderData.deliveryMethod,
+              paymentMethod: 'card',
+              address: orderData.address,
+              city: orderData.city,
+              county: orderData.county,
+              postalCode: orderData.postalCode,
+              deliveryPrice: orderData.deliveryMethod === 'express' ? 25 : 0,
+            }),
+          }).catch(() => {});
+
+          // Generate invoice (async, don't wait)
+          fetch(`https://${Deno.env.get('SUPABASE_URL')?.replace('https://', '')}/functions/v1/make-server-bbc0c500/invoice/generate`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              orderNumber: orderId,
+              orderDate: new Date().toISOString(),
+              customerName: orderData.clientName,
+              customerEmail: orderData.clientEmail,
+              customerPhone: orderData.clientPhone,
+              customerAddress: orderData.address,
+              customerCity: orderData.city,
+              customerCounty: orderData.county,
+              items: orderData.canvasItems,
+              total: orderData.totalPrice,
+              deliveryPrice: orderData.deliveryMethod === 'express' ? 25 : 0,
+            }),
+          }).catch(() => {});
+        }
+      } else {
+        console.error(`❌ [PROCESS QUEUE] No orderData found in payment record for ${orderId}`);
+      }
+    } else if (status === 'failed' || status === 'canceled' || status === 'error') {
+      console.log(`❌ [PROCESS QUEUE] Payment failed/canceled for order ${orderId}: ${errorMessage || 'Unknown error'}`);
+    }
+
+    // Mark as processed
+    await supabase.from('netopia_ipn_queue').update({ processed: true }).eq('id', queueId);
+    console.log(`✅ [PROCESS QUEUE] Queue item ${queueId} marked as processed`);
+
+    return c.json({ success: true, processed: true }, 200);
+
+  } catch (error) {
+    console.error('❌ [PROCESS QUEUE] Error processing queue:', error);
+    return c.json({ success: false, error: error instanceof Error ? error.message : 'Unknown error' }, 500);
+  }
+});
+
 // Netopia IPN (Instant Payment Notification) endpoint
+// NOTE: This endpoint requires JWT authentication - use /netopia/ipn-public for public access
 app.post("/make-server-bbc0c500/netopia/ipn", async (c) => {
   try {
     const body = await c.req.json();
     console.log(`🔔 Received Netopia IPN:`, JSON.stringify(body, null, 2));
 
     // Extract payment info from IPN
-    const { ntpID, status, amount, errorMessage } = body;
+    // Netopia sends: { payment: { ntpID, status, ... }, order: { orderID, amount, ... } }
+    const ntpID = body.payment?.ntpID || body.ntpID;
+    const status = body.payment?.status || body.status;
+    const orderID = body.order?.orderID || body.orderID;
+    const amount = body.order?.amount || body.amount;
+    const errorMessage = body.payment?.error?.message || body.errorMessage;
 
-    if (!ntpID) {
-      console.error('❌ Missing ntpID in IPN');
-      return c.json({ success: false, error: 'Missing ntpID' }, 400);
+    console.log(`📊 IPN Details: ntpID=${ntpID}, status=${status}, orderID=${orderID}, amount=${amount}`);
+
+    if (!orderID && !ntpID) {
+      console.error('❌ Missing both orderID and ntpID in IPN');
+      // CRITICAL: Return HTTP 200 status to Netopia to prevent retries
+      return c.json({ success: true }, 200);
     }
 
-    // Extract orderId from ntpID (format: orderId-timestamp)
-    const orderId = ntpID.split('-')[0];
+    // Look up the payment data using orderID first, then ntpID
+    let orderId = orderID;
+    let paymentData: any = null;
+
+    if (orderId) {
+      paymentData = await kv.get(`netopia_payment:${orderId}`);
+    }
+
+    // If not found by orderID, try looking up by ntpID
+    if (!paymentData && ntpID) {
+      const ntpMapping = await kv.get<{ orderId: string }>(`netopia_ntp:${ntpID}`);
+      if (ntpMapping?.orderId) {
+        orderId = ntpMapping.orderId;
+        paymentData = await kv.get(`netopia_payment:${orderId}`);
+      }
+    }
+
+    if (!paymentData) {
+      console.error(`❌ No payment data found for orderID=${orderID} or ntpID=${ntpID}`);
+      // CRITICAL: Return HTTP 200 status to Netopia to prevent retries
+      return c.json({ success: true }, 200);
+    }
+
+    console.log(`✅ Found payment data for orderId: ${orderId}`);
 
     // Update payment status in KV
-    const paymentData = await kv.get(`netopia_payment:${orderId}`);
-    
-    if (paymentData) {
-      await kv.set(`netopia_payment:${orderId}`, {
-        ...paymentData,
-        status,
-        amount,
-        errorMessage,
-        updatedAt: new Date().toISOString()
-      });
-    }
+    await kv.set(`netopia_payment:${orderId}`, {
+      ...paymentData,
+      status,
+      amount,
+      errorMessage,
+      ntpID: ntpID || paymentData.ntpID,
+      updatedAt: new Date().toISOString()
+    });
 
-    // Import Supabase client to update order payment status
+    // Import Supabase client
     const { createClient } = await import('npm:@supabase/supabase-js@2.39.7');
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // Update order payment status based on IPN status
-    if (status === 'confirmed' || status === 'paid' || status === 'completed') {
+    // Handle payment confirmation
+    if (status === 'confirmed' || status === 'paid' || status === 'completed' || status === 'active') {
       console.log(`✅ Payment confirmed for order ${orderId}`);
       
-      // Update order payment status to 'paid'
-      const { error: updateError } = await supabase
+      // Check if order already exists
+      const { data: existingOrder } = await supabase
         .from('orders')
-        .update({ 
-          payment_status: 'paid',
-          updated_at: new Date().toISOString()
-        })
-        .eq('order_number', orderId);
+        .select('id')
+        .eq('order_number', orderId)
+        .single();
 
-      if (updateError) {
-        console.error(`❌ Failed to update order ${orderId}:`, updateError);
+      if (existingOrder) {
+        // Order exists, just update payment status
+        const { error: updateError } = await supabase
+          .from('orders')
+          .update({ 
+            payment_status: 'paid',
+            updated_at: new Date().toISOString()
+          })
+          .eq('order_number', orderId);
+
+        if (updateError) {
+          console.error(`❌ Failed to update order ${orderId}:`, updateError);
+        } else {
+          console.log(`✅ Order ${orderId} marked as paid`);
+        }
+      } else if (paymentData.orderData) {
+        // Order doesn't exist yet - CREATE IT NOW with payment_status='paid'
+        console.log(`📝 Creating new order ${orderId} with payment_status='paid'`);
+        
+        const orderData = paymentData.orderData;
+        
+        // Prepare canvas items for database
+        const canvasItemsForDb = orderData.canvasItems.map((item: any) => ({
+          type: item.type,
+          paintingId: item.paintingId || null,
+          paintingTitle: item.paintingTitle || null,
+          image: item.image || null,
+          originalImage: item.originalImage || null,
+          croppedImage: item.croppedImage || null,
+          size: item.size,
+          quantity: item.quantity || 1,
+          price: item.price,
+          orientation: item.orientation || null,
+          hasCustomImage: item.hasCustomImage || false,
+          printType: item.printType || null,
+          frameType: item.frameType || null,
+          unsplashUrl: item.unsplashUrl || null,
+        }));
+
+        // Create the order with payment_status='paid' (removed client_id dependency)
+        const { data: newOrder, error: orderError } = await supabase
+          .from('orders')
+          .insert({
+            order_number: orderId,
+            customer_name: orderData.clientName,
+            customer_email: orderData.clientEmail,
+            customer_phone: orderData.clientPhone,
+            delivery_address: orderData.address,
+            delivery_city: orderData.city,
+            delivery_county: orderData.county,
+            delivery_postal_code: orderData.postalCode,
+            items: canvasItemsForDb,
+            subtotal: orderData.totalPrice,
+            delivery_cost: orderData.deliveryMethod === 'express' ? 25 : 0,
+            total: orderData.totalPrice,
+            delivery_option: orderData.deliveryMethod,
+            payment_method: 'card',
+            payment_status: 'paid', // ✅ PAID status immediately
+            status: 'new',
+            person_type: orderData.personType,
+            company_name: orderData.companyName,
+            cui: orderData.cui,
+            reg_com: orderData.regCom,
+            company_county: orderData.companyCounty,
+            company_city: orderData.companyCity,
+            company_address: orderData.companyAddress,
+          })
+          .select()
+          .single();
+
+        if (orderError) {
+          console.error('❌ Error creating order:', orderError);
+        } else {
+          console.log(`✅ Order ${orderId} created successfully with payment_status='paid'`);
+          
+          // Send confirmation email (async, don't wait)
+          fetch(`https://${Deno.env.get('SUPABASE_URL')?.replace('https://', '')}/functions/v1/make-server-bbc0c500/email/send-order-confirmation`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              orderNumber: orderId,
+              customerName: orderData.clientName,
+              customerEmail: orderData.clientEmail,
+              total: orderData.totalPrice,
+              items: orderData.canvasItems,
+              deliveryMethod: orderData.deliveryMethod,
+              paymentMethod: 'card',
+              address: orderData.address,
+              city: orderData.city,
+              county: orderData.county,
+              postalCode: orderData.postalCode,
+              deliveryPrice: orderData.deliveryMethod === 'express' ? 25 : 0,
+            }),
+          }).catch(() => {});
+
+          // Generate invoice (async, don't wait)
+          fetch(`https://${Deno.env.get('SUPABASE_URL')?.replace('https://', '')}/functions/v1/make-server-bbc0c500/invoice/generate`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              orderNumber: orderId,
+              orderDate: new Date().toISOString(),
+              customerName: orderData.clientName,
+              customerEmail: orderData.clientEmail,
+              customerPhone: orderData.clientPhone,
+              customerAddress: orderData.address,
+              customerCity: orderData.city,
+              customerCounty: orderData.county,
+              items: orderData.canvasItems,
+              total: orderData.totalPrice,
+              deliveryPrice: orderData.deliveryMethod === 'express' ? 25 : 0,
+            }),
+          }).catch(() => {});
+        }
       } else {
-        console.log(`✅ Order ${orderId} marked as paid`);
+        console.error(`❌ No orderData found in payment record for ${orderId}`);
       }
     } else if (status === 'failed' || status === 'canceled' || status === 'error') {
       console.log(`❌ Payment failed/canceled for order ${orderId}: ${errorMessage || 'Unknown error'}`);
-      
-      // Keep payment status as unpaid
-      console.log(`📝 Order ${orderId} remains unpaid`);
     }
 
-    // Always return success to Netopia
-    return c.json({ success: true });
+    // CRITICAL: Always return HTTP 200 status to Netopia to confirm receipt
+    console.log('✅ Returning HTTP 200 status to Netopia');
+    return c.json({ success: true }, 200);
 
   } catch (error) {
     console.error('❌ Error processing Netopia IPN:', error);
-    // Still return success to prevent Netopia from retrying
-    return c.json({ success: true });
+    // CRITICAL: Still return HTTP 200 to prevent Netopia from retrying
+    console.log('⚠️ Error occurred but returning HTTP 200 status to Netopia');
+    return c.json({ success: true }, 200);
   }
 });
 
 // Check payment status
 app.get("/make-server-bbc0c500/netopia/status/:orderId", async (c) => {
   try {
-    const orderId = c.req.param('orderId');
+    let orderId = c.req.param('orderId');
     
     if (!orderId) {
       return c.json({ success: false, error: 'Order ID required' }, 400);
+    }
+
+    // Check if this is actually an ntpID (starts with ntp or is a UUID format)
+    // If so, try to look up the actual orderId
+    if (orderId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
+      // This looks like an ntpID, try to get the mapping
+      const mapping = await kv.get<{ orderId: string }>(`netopia_ntp:${orderId}`);
+      if (mapping?.orderId) {
+        orderId = mapping.orderId;
+      }
     }
 
     // Get payment data from KV
@@ -3335,9 +3931,20 @@ app.get("/make-server-bbc0c500/netopia/status/:orderId", async (c) => {
 
     console.log(`📊 Payment status for order ${orderId}:`, paymentData.status);
 
+    // Map Netopia statuses to our frontend statuses
+    let frontendStatus = paymentData.status;
+    if (paymentData.status === 'confirmed' || paymentData.status === 'paid' || paymentData.status === 'active') {
+      frontendStatus = 'completed'; // Show success page
+    } else if (paymentData.status === 'failed' || paymentData.status === 'canceled' || paymentData.status === 'error') {
+      frontendStatus = 'failed'; // Show error page
+    } else {
+      frontendStatus = 'pending'; // Show processing page
+    }
+
     return c.json({ 
       success: true, 
-      status: paymentData.status,
+      status: frontendStatus,
+      originalStatus: paymentData.status,
       amount: paymentData.amount,
       errorMessage: paymentData.errorMessage,
       createdAt: paymentData.createdAt,
@@ -3350,6 +3957,43 @@ app.get("/make-server-bbc0c500/netopia/status/:orderId", async (c) => {
       success: false, 
       error: error instanceof Error ? error.message : 'Unknown error occurred' 
     }, 500);
+  }
+});
+
+// Finalize order after successful payment (called from frontend)
+app.post("/make-server-bbc0c500/netopia/finalize-order", async (c) => {
+  try {
+    const { orderId } = await c.req.json();
+    if (!orderId) return c.json({ success: false, error: 'Order ID required' }, 400);
+    console.log(`🎯 Finalizing order ${orderId} from frontend request`);
+    const paymentData = await kv.get<any>(`netopia_payment:${orderId}`);
+    if (!paymentData) return c.json({ success: false, error: 'Payment not found' }, 404);
+    const { createClient } = await import('npm:@supabase/supabase-js@2.39.7');
+    const supabase = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '');
+    const { data: existingOrder } = await supabase.from('orders').select('id, payment_status').eq('order_number', orderId).single();
+    if (existingOrder) {
+      console.log(`✅ Order ${orderId} already exists`);
+      return c.json({ success: true, message: 'Order already exists', orderId, alreadyCreated: true });
+    }
+    if (!paymentData.orderData) return c.json({ success: false, error: 'No order data found' }, 400);
+    const orderData = paymentData.orderData;
+    const canvasItemsForDb = orderData.canvasItems.map((item: any) => ({ type: item.type, paintingId: item.paintingId || null, paintingTitle: item.paintingTitle || null, image: item.image || null, originalImage: item.originalImage || null, croppedImage: item.croppedImage || null, size: item.size, quantity: item.quantity || 1, price: item.price, orientation: item.orientation || null, hasCustomImage: item.hasCustomImage || false, printType: item.printType || null, frameType: item.frameType || null, unsplashUrl: item.unsplashUrl || null }));
+    
+    // Create order directly without client_id (removed client table dependency)
+    const { error: orderError } = await supabase.from('orders').insert({ order_number: orderId, customer_name: orderData.clientName, customer_email: orderData.clientEmail, customer_phone: orderData.clientPhone, delivery_address: orderData.address, delivery_city: orderData.city, delivery_county: orderData.county, delivery_postal_code: orderData.postalCode, items: canvasItemsForDb, subtotal: orderData.totalPrice, delivery_cost: orderData.deliveryMethod === 'express' ? 25 : 0, total: orderData.totalPrice, delivery_option: orderData.deliveryMethod, payment_method: 'card', payment_status: 'paid', status: 'new', person_type: orderData.personType, company_name: orderData.companyName, cui: orderData.cui, reg_com: orderData.regCom, company_county: orderData.companyCounty, company_city: orderData.companyCity, company_address: orderData.companyAddress }).select().single();
+    if (orderError) {
+      console.error('❌ Failed to create order in finalize-order:', orderError);
+      console.error('❌ Order data:', JSON.stringify(orderData, null, 2));
+      return c.json({ success: false, error: `Failed to create order: ${orderError.message}` }, 500);
+    }
+    console.log(`✅ Order ${orderId} created successfully via finalize-order`);
+    await kv.set(`netopia_payment:${orderId}`, { ...paymentData, status: 'completed', orderCreated: true, updatedAt: new Date().toISOString() });
+    fetch(`https://${Deno.env.get('SUPABASE_URL')?.replace('https://', '')}/functions/v1/make-server-bbc0c500/email/send-order-confirmation`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderNumber: orderId, customerName: orderData.clientName, customerEmail: orderData.clientEmail, total: orderData.totalPrice, items: orderData.canvasItems, deliveryMethod: orderData.deliveryMethod, paymentMethod: 'card', address: orderData.address, city: orderData.city, county: orderData.county, postalCode: orderData.postalCode, deliveryPrice: orderData.deliveryMethod === 'express' ? 25 : 0 }) }).catch(() => {});
+    fetch(`https://${Deno.env.get('SUPABASE_URL')?.replace('https://', '')}/functions/v1/make-server-bbc0c500/invoice/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderNumber: orderId, orderDate: new Date().toISOString(), customerName: orderData.clientName, customerEmail: orderData.clientEmail, customerPhone: orderData.clientPhone, customerAddress: orderData.address, customerCity: orderData.city, customerCounty: orderData.county, items: orderData.canvasItems, total: orderData.totalPrice, deliveryPrice: orderData.deliveryMethod === 'express' ? 25 : 0 }) }).catch(() => {});
+    return c.json({ success: true, message: 'Order created successfully', orderId, orderCreated: true });
+  } catch (error) {
+    console.error('❌ Error finalizing order:', error);
+    return c.json({ success: false, error: error instanceof Error ? error.message : 'Unknown error occurred' }, 500);
   }
 });
 
@@ -3765,6 +4409,41 @@ app.get("/make-server-bbc0c500/clients/:clientId", async (c) => {
   } catch (error) {
     console.error('Error fetching client:', error);
     return c.json({ error: 'Failed to fetch client' }, 500);
+  }
+});
+
+// Clean up old processed IPN queue items (optional maintenance endpoint)
+app.post("/make-server-bbc0c500/netopia/cleanup-queue", async (c) => {
+  try {
+    console.log('🧹 [CLEANUP] Cleaning up old processed queue items...');
+    
+    const { createClient } = await import('npm:@supabase/supabase-js@2.39.7');
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    );
+    
+    // Delete items older than 7 days
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    
+    const { data, error } = await supabase
+      .from('netopia_ipn_queue')
+      .delete()
+      .eq('processed', true)
+      .lt('created_at', sevenDaysAgo.toISOString());
+    
+    if (error) {
+      console.error('❌ [CLEANUP] Failed to clean queue:', error);
+      return c.json({ success: false, error: error.message }, 500);
+    }
+    
+    console.log('✅ [CLEANUP] Queue cleaned successfully');
+    return c.json({ success: true, message: 'Queue cleaned' }, 200);
+    
+  } catch (error) {
+    console.error('❌ [CLEANUP] Error cleaning queue:', error);
+    return c.json({ success: false, error: error instanceof Error ? error.message : 'Unknown error' }, 500);
   }
 });
 

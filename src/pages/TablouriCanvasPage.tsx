@@ -485,12 +485,42 @@ export const TablouriCanvasPage: React.FC = () => {
 
           {/* Main Content Area - Right Side */}
           <div className="flex-1 lg:px-8 px-6 py-6">
-            {/* Mobile: Show Filter button */}
-            <div className="lg:hidden flex items-center justify-end mb-6">
-              <div className="relative">
+            {/* Mobile: Show Search + Filter button */}
+            <div className="lg:hidden flex items-center gap-2 mb-6">
+              {/* Mobile Search Bar */}
+              <div className="flex-1 relative">
+                <input
+                  type="text"
+                  value={unsplashQuery}
+                  onChange={(e) => setUnsplashQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && unsplashQuery.trim()) {
+                      searchUnsplash(unsplashQuery);
+                    }
+                  }}
+                  placeholder="Caută imagini..."
+                  className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#6994FF] focus:border-[#6994FF] text-sm"
+                />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                {unsplashQuery && (
+                  <button
+                    onClick={() => {
+                      setUnsplashQuery('');
+                      setShowUnsplashResults(false);
+                      setUnsplashImages([]);
+                    }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+              
+              {/* Filter Button */}
+              <div className="relative flex-shrink-0">
                 <button
                   onClick={() => setShowMobileFilters(!showMobileFilters)}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors text-sm ${
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors text-sm ${
                     showMobileFilters
                       ? 'bg-[#6994FF] text-white border border-[#6994FF]'
                       : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'

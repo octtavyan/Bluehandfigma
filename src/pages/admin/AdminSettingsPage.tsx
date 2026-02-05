@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AdminLayout } from '../../components/admin/AdminLayout';
-import { Save, Eye, EyeOff, CreditCard, Shield, Globe, Mail, Users as UsersIcon, Database, Cloud, AlertCircle } from 'lucide-react';
+import { Save, Eye, EyeOff, CreditCard, Shield, Globe, Mail, Users as UsersIcon, Database, Cloud, AlertCircle, Receipt, Webhook } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
 import { useSearchParams } from 'react-router';
@@ -8,14 +8,21 @@ import { UserManagementTab } from '../../components/admin/UserManagementTab';
 import { EmailConfigTab } from '../../components/admin/EmailConfigTab';
 import { CloudinaryConfigTab } from '../../components/admin/CloudinaryConfigTab';
 import { DatabaseManagementTab } from '../../components/admin/DatabaseManagementTab';
+import { FgoConfigTab } from '../../components/admin/FgoConfigTab';
+import { PipedreamConfigTab } from '../../components/admin/PipedreamConfigTab';
 
 interface NetopiaSettings {
   merchantId: string;
   apiKey: string; // RSA Private Key (optional for IPN)
   sandboxApiKey: string; // Netopia Sandbox API Key (required for sandbox payments)
+  sandboxPosSignature: string; // POS Signature for Sandbox
+  sandboxPublicKey: string; // Public Key for Sandbox
+  liveApiKey: string; // Netopia Live API Key (required for live payments)
+  livePosSignature: string; // POS Signature for Live
+  livePublicKey: string; // Public Key for Live
   isLive: boolean;
-  posSignature: string;
-  publicKey: string;
+  posSignature: string; // Deprecated - kept for backwards compatibility
+  publicKey: string; // Deprecated - kept for backwards compatibility
 }
 
 interface RevolutSettings {
@@ -29,11 +36,11 @@ interface PaymentGatewaySettings {
   activeGateway: 'netopia' | 'revolut'; // Which gateway is currently active
 }
 
-type TabType = 'email' | 'users' | 'database' | 'payment-gateways' | 'netopia' | 'revolut' | 'cloudinary';
+type TabType = 'email' | 'users' | 'database' | 'payment-gateways' | 'netopia' | 'revolut' | 'cloudinary' | 'fgo' | 'pipedream';
 
 export const AdminSettingsPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
-  const initialTab = (searchParams.get('tab') as TabType) || 'email';
+  const initialTab = (searchParams.get('tab') as TabType) || 'users';
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
   
   // Payment Gateway Selection state
@@ -47,6 +54,11 @@ export const AdminSettingsPage: React.FC = () => {
     merchantId: '',
     apiKey: '',
     sandboxApiKey: '',
+    sandboxPosSignature: '',
+    sandboxPublicKey: '',
+    liveApiKey: '',
+    livePosSignature: '',
+    livePublicKey: '',
     isLive: false,
     posSignature: '',
     publicKey: '',
@@ -98,6 +110,11 @@ export const AdminSettingsPage: React.FC = () => {
             merchantId: data.settings.merchantId || '',
             apiKey: data.settings.apiKey || '',
             sandboxApiKey: data.settings.sandboxApiKey || '',
+            sandboxPosSignature: data.settings.sandboxPosSignature || '',
+            sandboxPublicKey: data.settings.sandboxPublicKey || '',
+            liveApiKey: data.settings.liveApiKey || '',
+            livePosSignature: data.settings.livePosSignature || '',
+            livePublicKey: data.settings.livePublicKey || '',
             isLive: data.settings.isLive || false,
             posSignature: data.settings.posSignature || '',
             publicKey: data.settings.publicKey || '',
@@ -258,13 +275,15 @@ export const AdminSettingsPage: React.FC = () => {
   };
 
   const tabs = [
-    { id: 'email' as const, label: 'Configurare Email', icon: Mail },
     { id: 'users' as const, label: 'Utilizatori', icon: UsersIcon },
-    { id: 'database' as const, label: 'Database Management', icon: Database },
-    { id: 'payment-gateways' as const, label: 'Gateway-uri Plată', icon: Shield },
-    { id: 'netopia' as const, label: 'Netopia Config', icon: CreditCard },
-    { id: 'revolut' as const, label: 'Revolut Config', icon: Globe },
+    { id: 'email' as const, label: 'Email', icon: Mail },
+    { id: 'database' as const, label: 'Database', icon: Database },
+    { id: 'payment-gateways' as const, label: 'Gateway-uri', icon: Shield },
+    { id: 'netopia' as const, label: 'Netopia', icon: CreditCard },
+    { id: 'revolut' as const, label: 'Revolut', icon: Globe },
     { id: 'cloudinary' as const, label: 'Cloudinary', icon: Cloud },
+    { id: 'fgo' as const, label: 'FGO', icon: Receipt },
+    { id: 'pipedream' as const, label: 'Pipedream', icon: Webhook },
   ];
 
   return (
@@ -276,14 +295,14 @@ export const AdminSettingsPage: React.FC = () => {
 
       {/* Tabs */}
       <div className="bg-white border-b-2 border-gray-200 mb-6">
-        <div className="flex space-x-1 overflow-x-auto">
+        <div className="flex space-x-0.5 overflow-x-auto">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             return (
               <button
                 key={tab.id}
                 onClick={() => handleTabChange(tab.id)}
-                className={`flex items-center space-x-2 px-6 py-4 font-medium whitespace-nowrap border-b-2 transition-colors ${
+                className={`flex items-center space-x-1.5 px-3 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
                   activeTab === tab.id
                     ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
@@ -356,61 +375,133 @@ export const AdminSettingsPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* POS Signature */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-900 mb-2">
-                    POS Signature
-                    <span className="text-red-500 ml-1">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={netopiaSettings.posSignature}
-                    onChange={(e) => setNetopiaSettings({ ...netopiaSettings, posSignature: e.target.value })}
-                    placeholder="ex: 38CJ-NTJR-M8VL-QSUQ-OHEA"
-                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none font-mono"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Găsești în dashboard-ul Netopia, secțiunea "Semnătură"
-                  </p>
-                </div>
-
-                {/* Sandbox API Key - Only shown in test mode */}
+                {/* Sandbox Credentials */}
                 {!netopiaSettings.isLive && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-2">
-                      Sandbox API Key
-                      <span className="text-red-500 ml-1">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={netopiaSettings.sandboxApiKey}
-                      onChange={(e) => setNetopiaSettings({ ...netopiaSettings, sandboxApiKey: e.target.value })}
-                      placeholder="ex: icDO2L_2PqjNJL3F98BLukDRgmmL1z4DPYxu8HYhxVciRdarrVdqzc"
-                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none font-mono text-sm"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Necesară pentru testarea plăților în modul sandbox
-                    </p>
-                  </div>
+                  <>
+                    <div className="border-l-4 border-yellow-500 bg-yellow-50 p-4 rounded">
+                      <p className="text-sm font-medium text-yellow-900">📝 Credențiale Sandbox (Test)</p>
+                      <p className="text-xs text-yellow-700 mt-1">Folosite pentru testarea plăților în mediul de test</p>
+                    </div>
+
+                    {/* Sandbox POS Signature */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-900 mb-2">
+                        POS Signature (Sandbox)
+                        <span className="text-red-500 ml-1">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={netopiaSettings.sandboxPosSignature}
+                        onChange={(e) => setNetopiaSettings({ ...netopiaSettings, sandboxPosSignature: e.target.value })}
+                        placeholder="ex: 38CJ-NTJR-M8VL-QSUQ-OHEA"
+                        className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none font-mono"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Găsești în dashboard-ul Netopia Sandbox, secțiunea "Semnătură"
+                      </p>
+                    </div>
+
+                    {/* Sandbox API Key */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-900 mb-2">
+                        Sandbox API Key
+                        <span className="text-red-500 ml-1">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={netopiaSettings.sandboxApiKey}
+                        onChange={(e) => setNetopiaSettings({ ...netopiaSettings, sandboxApiKey: e.target.value })}
+                        placeholder="ex: icDO2L_2PqjNJL3F98BLukDRgmmL1z4DPYxu8HYhxVciRdarrVdqzc"
+                        className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none font-mono text-sm"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Necesară pentru testarea plăților în modul sandbox
+                      </p>
+                    </div>
+
+                    {/* Sandbox Public Key */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-900 mb-2">
+                        Netopia Public Key (Sandbox)
+                        <span className="text-red-500 ml-1">*</span>
+                      </label>
+                      <textarea
+                        value={netopiaSettings.sandboxPublicKey}
+                        onChange={(e) => setNetopiaSettings({ ...netopiaSettings, sandboxPublicKey: e.target.value })}
+                        placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+                        rows={6}
+                        className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none font-mono text-sm"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Descarcă fișierul "Cheie publică" din dashboard-ul Netopia Sandbox
+                      </p>
+                    </div>
+                  </>
                 )}
 
-                {/* Public Key */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-900 mb-2">
-                    Netopia Public Key
-                    <span className="text-red-500 ml-1">*</span>
-                  </label>
-                  <textarea
-                    value={netopiaSettings.publicKey}
-                    onChange={(e) => setNetopiaSettings({ ...netopiaSettings, publicKey: e.target.value })}
-                    placeholder="-----BEGIN PUBLIC KEY-----&#10;...&#10;-----END PUBLIC KEY-----"
-                    rows={6}
-                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none font-mono text-sm"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Descarcă fișierul "Cheie publică" din dashboard-ul Netopia
-                  </p>
-                </div>
+                {/* Live Credentials */}
+                {netopiaSettings.isLive && (
+                  <>
+                    <div className="border-l-4 border-green-500 bg-green-50 p-4 rounded">
+                      <p className="text-sm font-medium text-green-900">✅ Credențiale Live (Producție)</p>
+                      <p className="text-xs text-green-700 mt-1">Folosite pentru plăți reale în producție</p>
+                    </div>
+
+                    {/* Live POS Signature */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-900 mb-2">
+                        POS Signature (Live)
+                        <span className="text-red-500 ml-1">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={netopiaSettings.livePosSignature}
+                        onChange={(e) => setNetopiaSettings({ ...netopiaSettings, livePosSignature: e.target.value })}
+                        placeholder="ex: 38CJ-NTJR-M8VL-QSUQ-OHEA"
+                        className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none font-mono"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Găsești în dashboard-ul Netopia Live, secțiunea "Semnătură"
+                      </p>
+                    </div>
+
+                    {/* Live API Key */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-900 mb-2">
+                        Live API Key
+                        <span className="text-red-500 ml-1">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={netopiaSettings.liveApiKey}
+                        onChange={(e) => setNetopiaSettings({ ...netopiaSettings, liveApiKey: e.target.value })}
+                        placeholder="ex: icDO2L_2PqjNJL3F98BLukDRgmmL1z4DPYxu8HYhxVciRdarrVdqzc"
+                        className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none font-mono text-sm"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Necesară pentru procesarea plăților în modul live
+                      </p>
+                    </div>
+
+                    {/* Live Public Key */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-900 mb-2">
+                        Netopia Public Key (Live)
+                        <span className="text-red-500 ml-1">*</span>
+                      </label>
+                      <textarea
+                        value={netopiaSettings.livePublicKey}
+                        onChange={(e) => setNetopiaSettings({ ...netopiaSettings, livePublicKey: e.target.value })}
+                        placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+                        rows={6}
+                        className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none font-mono text-sm"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Descarcă fișierul "Cheie publică" din dashboard-ul Netopia Live
+                      </p>
+                    </div>
+                  </>
+                )}
 
                 {/* Info Box */}
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
@@ -720,6 +811,16 @@ export const AdminSettingsPage: React.FC = () => {
             </>
           )}
         </div>
+      )}
+
+      {/* Fgo Configuration Tab */}
+      {activeTab === 'fgo' && (
+        <FgoConfigTab />
+      )}
+
+      {/* Pipedream Configuration Tab */}
+      {activeTab === 'pipedream' && (
+        <PipedreamConfigTab />
       )}
     </AdminLayout>
   );

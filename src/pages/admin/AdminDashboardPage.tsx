@@ -38,7 +38,7 @@ export const AdminDashboardPage: React.FC = () => {
       const orderDate = new Date(o.orderDate);
       orderDate.setHours(0, 0, 0, 0);
       return orderDate.getTime() === today.getTime() && o.status !== 'closed';
-    }).reduce((sum, order) => sum + order.totalPrice, 0),
+    }).reduce((sum, order) => sum + (order.totalPrice || 0), 0),
   };
 
   // Filter recent orders based on user role
@@ -51,7 +51,10 @@ export const AdminDashboardPage: React.FC = () => {
       o.status === 'closed'
     );
   }
-  const recentOrders = recentOrdersFiltered.slice(0, 5);
+  // Sort by date (most recent first) and take top 5
+  const recentOrders = [...recentOrdersFiltered]
+    .sort((a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime())
+    .slice(0, 5);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -253,7 +256,7 @@ export const AdminDashboardPage: React.FC = () => {
                 </div>
                 <div className="flex items-center justify-between text-xs text-gray-600">
                   <span>{new Date(order.orderDate).toLocaleDateString('ro-RO')}</span>
-                  <span className="text-gray-900">{order.totalPrice.toFixed(2)} lei</span>
+                  <span className="text-gray-900">{(order.totalPrice || 0).toFixed(2)} lei</span>
                 </div>
               </div>
             ))
@@ -291,7 +294,7 @@ export const AdminDashboardPage: React.FC = () => {
                     <td className="px-6 py-4 text-sm text-gray-600">
                       {new Date(order.orderDate).toLocaleDateString('ro-RO')}
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">{order.totalPrice.toFixed(2)} lei</td>
+                    <td className="px-6 py-4 text-sm text-gray-900">{(order.totalPrice || 0).toFixed(2)} lei</td>
                     <td className="px-6 py-4">
                       <span className={`status-badge inline-flex px-3 py-1 text-xs rounded-full ${getStatusColor(order.status)}`}>
                         {getStatusLabel(order.status)}

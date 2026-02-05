@@ -1,0 +1,8 @@
+# Supabase Edge Functions Configuration
+
+[functions.make-server-bbc0c500]
+# Disable JWT verification for this function to allow public webhook access
+verify_jwt = false
+
+# This allows the /netopia/ipn-public endpoint to receive requests
+# from external services (like Netopia) without requiring Supabase JWT authentication

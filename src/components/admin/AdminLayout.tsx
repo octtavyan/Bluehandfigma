@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router';
-import { LogOut, Package, Users, UserCog, LayoutDashboard, Menu, X, Ruler, Image, Settings, Database, Monitor, FileText, Activity, DollarSign, Trash2, TrendingUp, Shield, Search, AlertCircle } from 'lucide-react';
+import { LogOut, Package, Users, UserCog, LayoutDashboard, Menu, X, Ruler, Image, Settings, Database, Monitor, FileText, Activity, DollarSign, Trash2, TrendingUp, Shield, Search, AlertCircle, Receipt } from 'lucide-react';
 import { useAdmin } from '../../context/AdminContext';
 import { useNotifications } from '../../hooks/useNotifications';
 import { CacheService, CACHE_KEYS } from '../../lib/cacheService';
@@ -52,12 +52,12 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
     { path: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['full-admin', 'account-manager', 'production'] },
     { path: '/admin/orders', label: 'Comenzi', icon: Package, roles: ['full-admin', 'account-manager', 'production'] },
     { path: '/admin/clients', label: 'Clienți', icon: Users, roles: ['full-admin', 'account-manager', 'production'] },
-    { path: '/admin/heroslides', label: 'Hero Slides', icon: Monitor, roles: ['full-admin', 'account-manager'] },
+    { path: '/admin/heroslides', label: 'Hero Slides', icon: Monitor, roles: ['full-admin'] },
     { path: '/admin/blog-posts', label: 'Blog Posts', icon: FileText, roles: ['full-admin', 'account-manager'] },
-    { path: '/admin/legal-pages', label: 'Pagini Juridice', icon: Shield, roles: ['full-admin', 'account-manager'] },
-    { path: '/admin/unsplash', label: 'Unsplash', icon: Search, roles: ['full-admin', 'account-manager'] },
+    { path: '/admin/legal-pages', label: 'Pagini Juridice', icon: Shield, roles: ['full-admin'] },
+    { path: '/admin/unsplash', label: 'Unsplash', icon: Search, roles: ['full-admin'] },
     { path: '/admin/sizes', label: 'Dimensiuni', icon: Ruler, roles: ['full-admin'] },
-    { path: '/admin/settings', label: 'Setări', icon: Settings, roles: ['full-admin', 'account-manager'] },
+    { path: '/admin/settings', label: 'Setări', icon: Settings, roles: ['full-admin'] },
   ];
 
   const filteredNavItems = navItems.filter(item => 
