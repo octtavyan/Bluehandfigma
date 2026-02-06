@@ -3428,14 +3428,23 @@ app.post("/make-server-bbc0c500/netopia/ipn-public", async (c) => {
     
     // Immediately process the IPN (call the processing function)
     // This happens in the background
-    fetch(`https://${Deno.env.get('SUPABASE_URL')?.replace('https://', '')}/functions/v1/make-server-bbc0c500/netopia/process-queue`, {
+    const processorUrl = `https://${Deno.env.get('SUPABASE_URL')?.replace('https://', '')}/functions/v1/make-server-bbc0c500/netopia/process-queue`;
+    console.log('🔄 [PUBLIC IPN] Triggering processor:', processorUrl);
+    
+    fetch(processorUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`
       },
       body: JSON.stringify({ queueId: data.id })
-    }).catch((err) => console.error('❌ [PUBLIC IPN] Failed to trigger processing:', err));
+    })
+    .then(res => {
+      console.log(`✅ [PUBLIC IPN] Processor triggered, status: ${res.status}`);
+      return res.text();
+    })
+    .then(text => console.log(`📋 [PUBLIC IPN] Processor response:`, text))
+    .catch((err) => console.error('❌ [PUBLIC IPN] Failed to trigger processing:', err));
     
     // Return Netopia's required format: {"errorCode": 0}
     console.log('✅ [PUBLIC IPN] Returning Netopia-compliant response: {"errorCode": 0}');
@@ -3956,6 +3965,39 @@ app.get("/make-server-bbc0c500/netopia/status/:orderId", async (c) => {
     return c.json({ 
       success: false, 
       error: error instanceof Error ? error.message : 'Unknown error occurred' 
+    }, 500);
+  }
+});
+
+// Get recent IPNs from queue (for CMS display)
+app.get("/make-server-bbc0c500/netopia/ipn-queue", async (c) => {
+  try {
+    const { createClient } = await import('npm:@supabase/supabase-js@2.39.7');
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    );
+    
+    // Fetch recent IPNs (last 10)
+    const { data, error } = await supabase
+      .from('netopia_ipn_queue')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(10);
+    
+    if (error) {
+      console.error('❌ Error fetching IPNs:', error);
+      return c.json({ success: false, error: error.message }, 500);
+    }
+    
+    console.log(`📊 Fetched ${data?.length || 0} IPNs from queue`);
+    return c.json({ success: true, ipns: data || [] });
+    
+  } catch (error) {
+    console.error('❌ Error in ipn-queue endpoint:', error);
+    return c.json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error' 
     }, 500);
   }
 });

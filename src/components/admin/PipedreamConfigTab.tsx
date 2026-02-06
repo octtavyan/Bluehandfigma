@@ -14,6 +14,7 @@ export const PipedreamConfigTab: React.FC = () => {
   const [testingConnection, setTestingConnection] = useState(false);
   const [recentIPNs, setRecentIPNs] = useState<IPNQueueItem[]>([]);
   const [loadingIPNs, setLoadingIPNs] = useState(false);
+  const [expandedIPNs, setExpandedIPNs] = useState<Record<number, boolean>>({});
 
   // Pipedream configuration (hardcoded from setup)
   const config = {
@@ -37,23 +38,34 @@ tX2aJkqp4PV3o5kI4bqHq/MS7HVJ7yxtj/p8kawlVYipGsQj3ypgltQ3bnYV/LRq
   const loadRecentIPNs = async () => {
     setLoadingIPNs(true);
     try {
-      // Query the IPN queue table to show recent entries
+      // Call our server endpoint which has service role access
       const response = await fetch(
-        `https://${projectId}.supabase.co/rest/v1/netopia_ipn_queue?select=*&order=created_at.desc&limit=5`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-bbc0c500/netopia/ipn-queue`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,
-            'apikey': publicAnonKey,
+            'Content-Type': 'application/json',
           },
         }
       );
 
       if (response.ok) {
-        const data = await response.json();
-        setRecentIPNs(data);
+        const result = await response.json();
+        console.log('IPNs loaded:', result);
+        if (result.success && result.ipns) {
+          setRecentIPNs(result.ipns);
+        } else {
+          console.error('Unexpected response format:', result);
+          toast.error('Format răspuns neașteptat');
+        }
+      } else {
+        const errorText = await response.text();
+        console.error('Failed to load IPNs:', response.status, errorText);
+        toast.error(`Eroare la încărcarea IPN-urilor: ${response.status}`);
       }
     } catch (error) {
       console.error('Error loading recent IPNs:', error);
+      toast.error('Eroare la conectarea la Supabase');
     } finally {
       setLoadingIPNs(false);
     }
@@ -129,6 +141,23 @@ tX2aJkqp4PV3o5kI4bqHq/MS7HVJ7yxtj/p8kawlVYipGsQj3ypgltQ3bnYV/LRq
                 Pipedream funcționează ca un proxy public care primește IPN-urile de la Netopia 
                 și le redirecționează către Supabase cu autentificarea corectă.
               </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Netopia Expected Response */}
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+          <div className="flex items-start space-x-3">
+            <CheckCircle className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
+            <div className="text-sm">
+              <p className="font-medium text-green-900 mb-1">Răspuns Netopia (conform documentației)</p>
+              <p className="text-green-800 mb-2">
+                Netopia așteaptă un răspuns JSON cu <code className="bg-white px-1 py-0.5 rounded">errorCode: 0</code> pentru a confirma primirea IPN-ului.
+              </p>
+              <div className="bg-white rounded p-2 font-mono text-xs">
+                <div className="text-green-700">✅ Răspuns corect (JSON):</div>
+                <code className="text-gray-800">{"{ \"errorCode\": 0 }"}</code>
+              </div>
             </div>
           </div>
         </div>
@@ -264,6 +293,18 @@ tX2aJkqp4PV3o5kI4bqHq/MS7HVJ7yxtj/p8kawlVYipGsQj3ypgltQ3bnYV/LRq
             </button>
           </div>
 
+          {/* Debug Info */}
+          <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded text-xs">
+            <p className="font-medium text-yellow-900 mb-1">🔍 Debug Info:</p>
+            <p className="text-yellow-800">Verifică consola browser-ului (F12) pentru detalii despre erori.</p>
+            <p className="text-yellow-800 mt-1">Dacă nu vezi IPN-uri, verifică:</p>
+            <ul className="list-disc list-inside text-yellow-800 mt-1">
+              <li>Pipedream a primit IPN-ul (Dashboard Pipedream)</li>
+              <li>Supabase a procesat IPN-ul (Edge Function Logs)</li>
+              <li>Tabelul netopia_ipn_queue există și are date (Table Editor)</li>
+            </ul>
+          </div>
+
           {loadingIPNs ? (
             <div className="text-center py-8 text-gray-500">
               <div className="animate-spin w-8 h-8 border-4 border-purple-600 border-t-transparent rounded-full mx-auto mb-2"></div>
@@ -276,35 +317,76 @@ tX2aJkqp4PV3o5kI4bqHq/MS7HVJ7yxtj/p8kawlVYipGsQj3ypgltQ3bnYV/LRq
             </div>
           ) : (
             <div className="space-y-2">
-              {recentIPNs.map((ipn) => (
-                <div key={ipn.id} className="border border-gray-200 rounded-lg p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center space-x-2">
-                      {ipn.processed ? (
-                        <CheckCircle className="w-4 h-4 text-green-600" />
-                      ) : (
-                        <XCircle className="w-4 h-4 text-yellow-600" />
-                      )}
-                      <span className="text-sm font-medium text-gray-900">
-                        IPN #{ipn.id}
-                      </span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${
-                        ipn.processed 
-                          ? 'bg-green-100 text-green-700' 
-                          : 'bg-yellow-100 text-yellow-700'
-                      }`}>
-                        {ipn.processed ? 'Procesat' : 'În așteptare'}
-                      </span>
-                    </div>
-                    <span className="text-xs text-gray-500">
-                      {new Date(ipn.created_at).toLocaleString('ro-RO')}
-                    </span>
+              {recentIPNs.map((ipn) => {
+                const orderData = ipn.payload?.order || {};
+                const paymentData = ipn.payload?.payment || {};
+                
+                return (
+                  <div key={ipn.id} className="border border-gray-200 rounded-lg">
+                    {/* Compact Header */}
+                    <button
+                      onClick={() => setExpandedIPNs(prev => ({ ...prev, [ipn.id]: !prev[ipn.id] }))}
+                      className="w-full px-3 py-2 flex items-center justify-between hover:bg-gray-50 transition-colors"
+                    >
+                      <div className="flex items-center space-x-2">
+                        {ipn.processed ? (
+                          <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0" />
+                        ) : (
+                          <XCircle className="w-4 h-4 text-yellow-600 flex-shrink-0" />
+                        )}
+                        <span className="text-sm font-medium text-gray-900">
+                          IPN #{ipn.id}
+                        </span>
+                        {orderData.orderID && (
+                          <span className="text-xs text-gray-600">
+                            • {orderData.orderID}
+                          </span>
+                        )}
+                        {paymentData.amount && (
+                          <span className="text-xs text-gray-600">
+                            • {paymentData.amount} {paymentData.currency || 'RON'}
+                          </span>
+                        )}
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                          ipn.processed 
+                            ? 'bg-green-100 text-green-700' 
+                            : 'bg-yellow-100 text-yellow-700'
+                        }`}>
+                          {ipn.processed ? 'Procesat' : 'În așteptare'}
+                        </span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-xs text-gray-500">
+                          {new Date(ipn.created_at).toLocaleString('ro-RO', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </span>
+                        <svg
+                          className={`w-4 h-4 text-gray-500 transition-transform ${expandedIPNs[ipn.id] ? 'rotate-180' : ''}`}
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </div>
+                    </button>
+                    
+                    {/* Expanded Content */}
+                    {expandedIPNs[ipn.id] && (
+                      <div className="px-3 pb-3 pt-1 border-t border-gray-100">
+                        <pre className="text-xs bg-gray-50 p-2 rounded overflow-x-auto">
+                          {JSON.stringify(ipn.payload, null, 2)}
+                        </pre>
+                      </div>
+                    )}
                   </div>
-                  <pre className="text-xs bg-gray-50 p-2 rounded overflow-x-auto">
-                    {JSON.stringify(ipn.payload, null, 2)}
-                  </pre>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
