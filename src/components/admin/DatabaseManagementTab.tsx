@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Database, AlertCircle, CheckCircle, RefreshCw, Copy, ExternalLink, Stethoscope } from 'lucide-react';
-import { projectId } from '../../utils/supabase/info';
+import { Database, CheckCircle, XCircle, AlertCircle, ExternalLink, RefreshCw, Activity } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { supabase } from '../../lib/supabase';
-import { SupabaseDiagnostics } from '../SupabaseDiagnostics';
+import { projectId } from '../../utils/supabase/info';
 
 interface TableCheck {
   name: string;
@@ -13,7 +12,6 @@ interface TableCheck {
 }
 
 export const DatabaseManagementTab: React.FC = () => {
-  const [isCopied, setIsCopied] = useState(false);
   const [checking, setChecking] = useState(false);
   const [tables, setTables] = useState<TableCheck[]>([]);
   const [showAdvancedDiagnostics, setShowAdvancedDiagnostics] = useState(false);
@@ -78,13 +76,6 @@ export const DatabaseManagementTab: React.FC = () => {
     checkTables();
   }, []);
 
-  const handleCopyProjectId = () => {
-    navigator.clipboard.writeText(projectId);
-    setIsCopied(true);
-    toast.success('Project ID copiat!');
-    setTimeout(() => setIsCopied(false), 2000);
-  };
-
   const missingTables = tables.filter(t => !t.exists);
   const existingTables = tables.filter(t => t.exists);
 
@@ -121,36 +112,6 @@ export const DatabaseManagementTab: React.FC = () => {
 
       {/* Project Info */}
       <div className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Supabase Project ID
-          </label>
-          <div className="flex items-center space-x-2">
-            <input
-              type="text"
-              value={projectId}
-              readOnly
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-700 font-mono text-sm"
-            />
-            <button
-              onClick={handleCopyProjectId}
-              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg flex items-center space-x-2 transition-colors"
-            >
-              {isCopied ? (
-                <>
-                  <CheckCircle className="w-4 h-4 text-green-600" />
-                  <span>Copiat!</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-4 h-4" />
-                  <span>Copiază</span>
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-
         {/* Quick Links */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
           <a
@@ -243,12 +204,12 @@ export const DatabaseManagementTab: React.FC = () => {
           >
             {showAdvancedDiagnostics ? (
               <>
-                <Stethoscope className="w-4 h-4" />
+                <Activity className="w-4 h-4" />
                 <span>Ascunde diagnostic avansat</span>
               </>
             ) : (
               <>
-                <Stethoscope className="w-4 h-4" />
+                <Activity className="w-4 h-4" />
                 <span>Afișează diagnostic avansat</span>
               </>
             )}
@@ -272,8 +233,10 @@ export const DatabaseManagementTab: React.FC = () => {
           ))}
         </div>
         {showAdvancedDiagnostics && (
-          <div className="mt-4">
-            <SupabaseDiagnostics />
+          <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+            <p className="text-sm text-yellow-800">
+              <strong>Diagnostic avansat:</strong> Pentru debugging mai detaliat, verifică Supabase Dashboard → Logs → Edge Functions
+            </p>
           </div>
         )}
       </div>

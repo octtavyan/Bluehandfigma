@@ -56,7 +56,6 @@ const AdminBlogPostsPage = lazy(() => import('./pages/admin/AdminBlogPostsPage')
 const AdminBlogPostEditPage = lazy(() => import('./pages/admin/AdminBlogPostEditPage').then(m => ({ default: m.AdminBlogPostEditPage })));
 const AdminLegalPagesPage = lazy(() => import('./pages/admin/AdminLegalPagesPage').then(m => ({ default: m.AdminLegalPagesPage })));
 const AdminUnsplashPage = lazy(() => import('./pages/admin/AdminUnsplashPage').then(m => ({ default: m.AdminUnsplashPage })));
-const AdminDatabaseCheckPage = lazy(() => import('./pages/admin/AdminDatabaseCheckPage').then(m => ({ default: m.AdminDatabaseCheckPage })));
 
 // Loading fallback component
 const PageLoader = () => (
@@ -150,7 +149,6 @@ function App() {
             <Route path="/admin/blog-posts/edit/:id" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AdminBlogPostEditPage /></Suspense></ProtectedRoute>} />
             <Route path="/admin/legal-pages" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AdminLegalPagesPage /></Suspense></ProtectedRoute>} />
             <Route path="/admin/unsplash" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AdminUnsplashPage /></Suspense></ProtectedRoute>} />
-            <Route path="/admin/database-check" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AdminDatabaseCheckPage /></Suspense></ProtectedRoute>} />
 
             {/* Public Routes */}
             <Route path="*" element={
