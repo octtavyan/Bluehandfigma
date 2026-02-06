@@ -1,0 +1,34 @@
+name: Fix package.json
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  fix-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Fix package.json
+        run: |
+          echo "🔧 Checking package.json..."
+          
+          # Check if Supabase dependency exists
+          if grep -q '"Supabase":' package.json; then
+            echo "❌ Found invalid 'Supabase' dependency - fixing..."
+            
+            # Remove the invalid dependency
+            node fix-package.js
+            
+            # Commit and push the fix
+            git config user.name "GitHub Actions"
+            git config user.email "actions@github.com"
+            git add package.json
+            git commit -m "🤖 Auto-fix: Remove invalid Supabase dependency"
+            git push
+            
+            echo "✅ package.json fixed and pushed!"
+          else
+            echo "✅ package.json is clean!"
+          fi
