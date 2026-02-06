@@ -17,17 +17,15 @@ import { HomePage } from './pages/HomePage';
 
 // Lazy load all other pages
 const AdminLoginPage = lazy(() => import('./pages/AdminLoginPage').then(m => ({ default: m.AdminLoginPage })));
-const SupabaseTestPage = lazy(() => import('./pages/SupabaseTestPage'));
 const APITestPage = lazy(() => import('./pages/APITestPage'));
 const LoginTestPage = lazy(() => import('./pages/LoginTestPage'));
+const NetopiaTestPage = lazy(() => import('./pages/NetopiaTestPage'));
 const DebugAuthPage = lazy(() => import('./pages/DebugAuthPage'));
 const DiagnosticPage = lazy(() => import('./pages/DiagnosticPage'));
-const SupabaseDiagnosticsPage = lazy(() => import('./pages/SupabaseDiagnosticsPage'));
 const PHPFilesDownloadPage = lazy(() => import('./pages/PHPFilesDownloadPage'));
 const PHPFilesPage = lazy(() => import('./pages/PHPFilesPage'));
-const ServerTestPage = lazy(() => import('./pages/ServerTestPage'));
-const SimpleConnectionTest = lazy(() => import('./pages/SimpleConnectionTest'));
-const ServerSetupGuide = lazy(() => import('./pages/ServerSetupGuide'));
+
+// Lazy load public pages
 const ProductsPage = lazy(() => import('./pages/ProductsPage').then(m => ({ default: m.ProductsPage })));
 const ProductDetailPage = lazy(() => import('./pages/ProductDetailPage').then(m => ({ default: m.ProductDetailPage })));
 const MulticanvasPage = lazy(() => import('./pages/MulticanvasPage').then(m => ({ default: m.MulticanvasPage })));
@@ -43,9 +41,6 @@ const SitemapPage = lazy(() => import('./pages/SitemapPage').then(m => ({ defaul
 const TermsPage = lazy(() => import('./pages/TermsPage').then(m => ({ default: m.TermsPage })));
 const GDPRPage = lazy(() => import('./pages/GDPRPage').then(m => ({ default: m.GDPRPage })));
 const PaymentSuccessPage = lazy(() => import('./pages/PaymentSuccessPage').then(m => ({ default: m.PaymentSuccessPage })));
-const NetopiaTestPage = lazy(() => import('./pages/NetopiaTestPage'));
-const NetopiaApiKeyCheck = lazy(() => import('./pages/NetopiaApiKeyCheck'));
-const NetopiaDebugPage = lazy(() => import('./pages/NetopiaDebugPage'));
 
 // Lazy load admin pages
 const AdminDashboardPage = lazy(() => import('./pages/admin/AdminDashboardPage').then(m => ({ default: m.AdminDashboardPage })));
@@ -134,17 +129,13 @@ function App() {
           <Routes>
             {/* Admin Routes - wrapped in Suspense */}
             <Route path="/admin/login" element={<Suspense fallback={<PageLoader />}><AdminLoginPage /></Suspense>} />
-            <Route path="/supabase-test" element={<Suspense fallback={<PageLoader />}><SupabaseTestPage /></Suspense>} />
             <Route path="/api-test" element={<Suspense fallback={<PageLoader />}><APITestPage /></Suspense>} />
             <Route path="/login-test" element={<Suspense fallback={<PageLoader />}><LoginTestPage /></Suspense>} />
+            <Route path="/netopia-test" element={<Suspense fallback={<PageLoader />}><NetopiaTestPage /></Suspense>} />
             <Route path="/debug-auth" element={<Suspense fallback={<PageLoader />}><DebugAuthPage /></Suspense>} />
             <Route path="/diagnostic" element={<Suspense fallback={<PageLoader />}><DiagnosticPage /></Suspense>} />
-            <Route path="/supabase-diagnostics" element={<Suspense fallback={<PageLoader />}><SupabaseDiagnosticsPage /></Suspense>} />
             <Route path="/php-files-download" element={<Suspense fallback={<PageLoader />}><PHPFilesDownloadPage /></Suspense>} />
             <Route path="/php-files" element={<Suspense fallback={<PageLoader />}><PHPFilesPage /></Suspense>} />
-            <Route path="/server-test" element={<Suspense fallback={<PageLoader />}><ServerTestPage /></Suspense>} />
-            <Route path="/simple-connection-test" element={<Suspense fallback={<PageLoader />}><SimpleConnectionTest /></Suspense>} />
-            <Route path="/server-setup-guide" element={<Suspense fallback={<PageLoader />}><ServerSetupGuide /></Suspense>} />
             <Route path="/admin/dashboard" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AdminDashboardPage /></Suspense></ProtectedRoute>} />
             <Route path="/admin/orders" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AdminOrdersPage /></Suspense></ProtectedRoute>} />
             <Route path="/admin/orders/:orderId" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AdminOrderDetailPage /></Suspense></ProtectedRoute>} />
@@ -190,9 +181,6 @@ function App() {
                     <Route path="/gdpr" element={<Suspense fallback={<PageLoader />}><GDPRPage /></Suspense>} />
                     <Route path="/politica-confidentialitate" element={<Suspense fallback={<PageLoader />}><GDPRPage /></Suspense>} />
                     <Route path="/payment-success" element={<Suspense fallback={<PageLoader />}><PaymentSuccessPage /></Suspense>} />
-                    <Route path="/netopia-test" element={<Suspense fallback={<PageLoader />}><NetopiaTestPage /></Suspense>} />
-                    <Route path="/netopia-api-check" element={<Suspense fallback={<PageLoader />}><NetopiaApiKeyCheck /></Suspense>} />
-                    <Route path="/netopia-debug" element={<Suspense fallback={<PageLoader />}><NetopiaDebugPage /></Suspense>} />
                   </Routes>
                 </main>
                 <Footer />

@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "preinstall": "node fix-package.js"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.1.2",
